@@ -256,12 +256,45 @@ func convertSlice(ports [][]uint16) []byte {
 func (g *Gtp5g) newSdfFilter(i *ie.IE, srcIf uint8) (nl.AttrList, error) {
 	var attrs nl.AttrList
 
-	v, err := i.SDFFilter()
-	if err != nil {
-		return nil, err
+	// Validate IE payload length to prevent buffer overflow
+	if i == nil {
+		return nil, errors.New("SDF Filter IE is nil")
 	}
 
+	// Check payload length is reasonable (max 64KB for PFCP IE)
+	if len(i.Payload) > 65535 {
+		return nil, errors.New("SDF Filter IE payload too large")
+	}
+
+	// Use defer-recover to catch any panic from malformed IE parsing
+	var v *ie.SDFFilterFields
+	var parseErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				parseErr = errors.Errorf("SDF Filter parsing panic: %v", r)
+			}
+		}()
+		v, parseErr = i.SDFFilter()
+	}()
+
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
+	// Additional validation: check FDLength doesn't exceed actual payload
 	if v.HasFD() {
+		// FDLength should be reasonable (max 512 bytes for flow description)
+		if v.FDLength > 512 {
+			return nil, errors.Errorf("SDF Filter FDLength too large: %d", v.FDLength)
+		}
+
+		// Verify flow description length matches declared length
+		if len(v.FlowDescription) != int(v.FDLength) {
+			return nil, errors.Errorf("SDF Filter FDLength mismatch: declared %d, actual %d",
+				v.FDLength, len(v.FlowDescription))
+		}
+
 		swapSrcDst := (srcIf == ie.SrcInterfaceAccess)
 		fd, err := g.newFlowDesc(v.FlowDescription, swapSrcDst)
 		if err != nil {
@@ -367,12 +400,15 @@ func (g *Gtp5g) newPdi(i *ie.IE) (nl.AttrList, error) {
 
 	for _, x := range sdfIEs {
 		v, err := g.newSdfFilter(x, srcIf)
-		if err == nil {
-			attrs = append(attrs, nl.Attr{
-				Type:  gtp5gnl.PDI_SDF_FILTER,
-				Value: v,
-			})
+		if err != nil {
+			// Log the error and return it instead of silently ignoring
+			logger.FwderLog.Warnf("Failed to parse SDF Filter: %v", err)
+			return nil, errors.Wrap(err, "newSdfFilter failed")
 		}
+		attrs = append(attrs, nl.Attr{
+			Type:  gtp5gnl.PDI_SDF_FILTER,
+			Value: v,
+		})
 	}
 
 	return attrs, nil
