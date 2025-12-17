@@ -170,10 +170,14 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		s.UpdateNodeID(sess.rnode, rnodeid)
 	}
 
+	// Track if any critical errors occurred
+	var errorCause uint8 = ie.CauseRequestAccepted
+
 	for _, i := range req.CreateFAR {
 		err = sess.CreateFAR(i)
 		if err != nil {
 			sess.log.Errorf("Mod CreateFAR error: %+v", err)
+			errorCause = ie.CauseRequestRejected
 		}
 	}
 
@@ -181,17 +185,15 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		err = sess.CreateQER(i)
 		if err != nil {
 			sess.log.Errorf("Mod CreateQER error: %+v", err)
+			errorCause = ie.CauseRequestRejected
 		}
 	}
 
 	for _, i := range req.CreateURR {
 		err = sess.CreateURR(i)
 		if err != nil {
-			if strings.Contains(err.Error(), "file exists") {
-				sess.log.Warnf("Mod CreateURR error: %+v", err)
-			} else {
-				sess.log.Errorf("Mod CreateURR error: %+v", err)
-			}
+			sess.log.Errorf("Mod CreateURR error: %+v", err)
+			errorCause = ie.CauseRequestRejected
 		}
 	}
 
@@ -199,6 +201,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		err = sess.CreateBAR(req.CreateBAR)
 		if err != nil {
 			sess.log.Errorf("Mod CreateBAR error: %+v", err)
+			errorCause = ie.CauseRequestRejected
 		}
 	}
 
@@ -206,6 +209,15 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		err = sess.CreatePDR(i)
 		if err != nil {
 			sess.log.Errorf("Mod CreatePDR error: %+v", err)
+			// Check if error is due to malformed IE (SDF Filter parsing panic)
+			if err.Error() != "" &&
+				(err.Error() == "invalid argument" ||
+					strings.Contains(err.Error(), "SDF Filter") ||
+					strings.Contains(err.Error(), "parsing panic")) {
+				errorCause = ie.CauseMandatoryIEIncorrect
+			} else {
+				errorCause = ie.CauseRequestRejected
+			}
 		}
 	}
 
@@ -311,7 +323,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		sess.RemoteID, // seid
 		req.Header.SequenceNumber,
 		0, // pri
-		ie.NewCause(ie.CauseRequestAccepted),
+		ie.NewCause(errorCause),
 	)
 	for _, r := range usars {
 		urrInfo, ok := sess.URRIDs[r.URRID]
