@@ -256,45 +256,47 @@ func convertSlice(ports [][]uint16) []byte {
 func (g *Gtp5g) newSdfFilter(i *ie.IE, srcIf uint8) (nl.AttrList, error) {
 	var attrs nl.AttrList
 
-	// Validate IE payload length to prevent buffer overflow
-	if i == nil {
-		return nil, errors.New("SDF Filter IE is nil")
-	}
-
 	// Check payload length is reasonable (max 64KB for PFCP IE)
 	if len(i.Payload) > 65535 {
 		return nil, errors.New("SDF Filter IE payload too large")
 	}
 
-	// Use defer-recover to catch any panic from malformed IE parsing
-	var v *ie.SDFFilterFields
-	var parseErr error
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				parseErr = errors.Errorf("SDF Filter parsing panic: %v", r)
-			}
-		}()
-		v, parseErr = i.SDFFilter()
-	}()
-
-	if parseErr != nil {
-		return nil, parseErr
+	// SDF Filter IE format per TS 29.244 Section 8.2.5
+	if len(i.Payload) < 2 {
+		return nil, errors.New("SDF Filter IE payload too short (< 2 bytes)")
 	}
 
-	// Additional validation: check FDLength doesn't exceed actual payload
+	// i.Payload[0] corresponds to Octet 5 (Flags) in the spec
+	flags := i.Payload[0]
+	hasFD := (flags & 0x01) != 0 // Bit 1: Flow Description
+	offset := 2
+
+	if hasFD {
+		if len(i.Payload) < offset+2 {
+			return nil, errors.New("SDF Filter IE with FD flag needs Length of Flow Description")
+		}
+		// Read FDLength from i.Payload[2-3] (Octets 7-8 in spec)
+		fdLength := uint16(i.Payload[offset])<<8 | uint16(i.Payload[offset+1])
+
+		// Validate FDLength doesn't exceed available payload
+		// Flow Description data starts at i.Payload[4] (Octet 9)
+		flowDescStart := offset + 2
+		availableBytes := len(i.Payload) - flowDescStart
+		if int(fdLength) > availableBytes {
+			return nil, errors.Errorf(
+				"SDF Filter FDLength %d exceeds available payload %d bytes",
+				fdLength, availableBytes)
+		}
+	}
+
+	// Now it's safe to parse - the payload has been pre-validated
+	v, err := i.SDFFilter()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to parse SDF Filter")
+	}
+
+	// Process validated SDF Filter fields
 	if v.HasFD() {
-		// FDLength should be reasonable (max 512 bytes for flow description)
-		if v.FDLength > 512 {
-			return nil, errors.Errorf("SDF Filter FDLength too large: %d", v.FDLength)
-		}
-
-		// Verify flow description length matches declared length
-		if len(v.FlowDescription) != int(v.FDLength) {
-			return nil, errors.Errorf("SDF Filter FDLength mismatch: declared %d, actual %d",
-				v.FDLength, len(v.FlowDescription))
-		}
-
 		swapSrcDst := (srcIf == ie.SrcInterfaceAccess)
 		fd, err := g.newFlowDesc(v.FlowDescription, swapSrcDst)
 		if err != nil {
@@ -305,6 +307,7 @@ func (g *Gtp5g) newSdfFilter(i *ie.IE, srcIf uint8) (nl.AttrList, error) {
 			Value: fd,
 		})
 	}
+
 	if v.HasTTC() {
 		// TODO:
 		// v.ToSTrafficClass string
