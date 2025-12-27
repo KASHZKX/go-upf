@@ -1,12 +1,12 @@
 module github.com/free5gc/go-upf
 
-go 1.24.0
+go 1.25.5
 
 require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d
 	github.com/davecgh/go-spew v1.1.1
-	github.com/free5gc/go-gtp5gnl v1.4.7-0.20241008130314-a3088e4cb7fa
-	github.com/free5gc/util v1.1.1
+	github.com/free5gc/go-gtp5gnl v1.6.1
+	github.com/free5gc/util v1.3.1
 	github.com/hashicorp/go-version v1.6.0
 	github.com/khirono/go-genl v1.0.1
 	github.com/khirono/go-nl v1.0.5
@@ -14,7 +14,7 @@ require (
 	github.com/khirono/go-rtnlroute v1.0.1
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	github.com/urfave/cli/v2 v2.27.7
 	github.com/wmnsk/go-pfcp v0.0.23-0.20231009074152-d5a9c1f47114
 	gopkg.in/yaml.v2 v2.4.0
@@ -53,6 +53,6 @@ require (
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
+	google.golang.org/protobuf v1.36.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
