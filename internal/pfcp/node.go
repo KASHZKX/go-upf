@@ -43,19 +43,26 @@ type Sess struct {
 	log      *logrus.Entry
 }
 
+var (
+	ErrMissingMandatoryIE             = errors.New("mandatory IE missing or incorrect")
+	ErrMissingConditionalIE           = errors.New("conditional IE missing or incorrect")
+	ErrRuleNotFound                   = errors.New("rule not found")
+	ErrRuleCreationModificationFailed = errors.New("rule creation/modification failed")
+)
+
 func (s *Sess) Close() []report.USAReport {
 	for id := range s.FARIDs {
 		i := ie.NewRemoveFAR(ie.NewFARID(id))
 		err := s.RemoveFAR(i)
 		if err != nil {
-			s.log.Errorf("Remove FAR err: %+v", err)
+			s.log.Errorf("Remove FAR err: %v", err)
 		}
 	}
 	for id := range s.QERIDs {
 		i := ie.NewRemoveQER(ie.NewQERID(id))
 		err := s.RemoveQER(i)
 		if err != nil {
-			s.log.Errorf("Remove QER err: %+v", err)
+			s.log.Errorf("Remove QER err: %v", err)
 		}
 	}
 
@@ -64,7 +71,7 @@ func (s *Sess) Close() []report.USAReport {
 		i := ie.NewRemoveURR(ie.NewURRID(id))
 		rs, err := s.RemoveURR(i)
 		if err != nil {
-			s.log.Errorf("Remove URR err: %+v", err)
+			s.log.Errorf("Remove URR err: %v", err)
 			continue
 		}
 		if rs != nil {
@@ -75,14 +82,14 @@ func (s *Sess) Close() []report.USAReport {
 		i := ie.NewRemoveBAR(ie.NewBARID(id))
 		err := s.RemoveBAR(i)
 		if err != nil {
-			s.log.Errorf("Remove BAR err: %+v", err)
+			s.log.Errorf("Remove BAR err: %v", err)
 		}
 	}
 	for id := range s.PDRIDs {
 		i := ie.NewRemovePDR(ie.NewPDRID(id))
 		rs, err := s.RemovePDR(i)
 		if err != nil {
-			s.log.Errorf("remove PDR err: %+v", err)
+			s.log.Errorf("remove PDR err: %v", err)
 		}
 		if rs != nil {
 			usars = append(usars, rs...)
@@ -97,7 +104,11 @@ func (s *Sess) Close() []report.USAReport {
 func (s *Sess) CreatePDR(req *ie.IE) error {
 	ies, err := req.CreatePDR()
 	if err != nil {
-		return err
+		return ErrRuleCreationModificationFailed
+	}
+
+	if err = s.rnode.driver.CreatePDR(s.LocalID, req); err != nil {
+		return ErrRuleCreationModificationFailed
 	}
 
 	var pdrid uint16
@@ -107,29 +118,29 @@ func (s *Sess) CreatePDR(req *ie.IE) error {
 		case ie.PDRID:
 			v, err1 := i.PDRID()
 			if err1 != nil {
-				break
+				return ErrMissingMandatoryIE
 			}
 			pdrid = v
 		case ie.URRID:
 			v, err1 := i.URRID()
 			if err1 != nil {
-				break
+				return ErrMissingConditionalIE
+			}
+			_, ok := s.URRIDs[v]
+			if !ok {
+				return ErrRuleCreationModificationFailed
 			}
 			urrids[v] = struct{}{}
-			urrInfo, ok := s.URRIDs[v]
-			if ok {
-				urrInfo.refPdrNum++
-			}
 		}
+	}
+
+	for urrid := range urrids {
+		urrInfo := s.URRIDs[urrid]
+		urrInfo.refPdrNum++
 	}
 
 	s.PDRIDs[pdrid] = &PDRInfo{
 		RelatedURRIDs: urrids,
-	}
-
-	err = s.rnode.driver.CreatePDR(s.LocalID, req)
-	if err != nil {
-		return err
 	}
 
 	return nil
@@ -155,7 +166,7 @@ func (s *Sess) diassociateURR(urrid uint32) []report.USAReport {
 			return usars
 		}
 	} else {
-		s.log.Warnf("diassociateURR: wrong refPdrNum(%d)", urrInfo.refPdrNum)
+		s.log.Errorf("diassociateURR: wrong refPdrNum(%d)", urrInfo.refPdrNum)
 	}
 	return nil
 }
@@ -163,7 +174,11 @@ func (s *Sess) diassociateURR(urrid uint32) []report.USAReport {
 func (s *Sess) UpdatePDR(req *ie.IE) ([]report.USAReport, error) {
 	ies, err := req.UpdatePDR()
 	if err != nil {
-		return nil, err
+		return nil, ErrMissingMandatoryIE
+	}
+
+	if err = s.rnode.driver.UpdatePDR(s.LocalID, req); err != nil {
+		return nil, ErrRuleCreationModificationFailed
 	}
 
 	var pdrid uint16
@@ -173,13 +188,13 @@ func (s *Sess) UpdatePDR(req *ie.IE) ([]report.USAReport, error) {
 		case ie.PDRID:
 			v, err1 := i.PDRID()
 			if err1 != nil {
-				break
+				return nil, ErrMissingMandatoryIE
 			}
 			pdrid = v
 		case ie.URRID:
 			v, err1 := i.URRID()
 			if err1 != nil {
-				break
+				return nil, ErrMissingConditionalIE
 			}
 			newUrrids[v] = struct{}{}
 		}
@@ -187,12 +202,7 @@ func (s *Sess) UpdatePDR(req *ie.IE) ([]report.USAReport, error) {
 
 	pdrInfo, ok := s.PDRIDs[pdrid]
 	if !ok {
-		return nil, errors.Errorf("UpdatePDR: PDR(%#x) not found", pdrid)
-	}
-
-	err = s.rnode.driver.UpdatePDR(s.LocalID, req)
-	if err != nil {
-		return nil, err
+		return nil, ErrRuleNotFound
 	}
 
 	var usars []report.USAReport
@@ -213,17 +223,16 @@ func (s *Sess) UpdatePDR(req *ie.IE) ([]report.USAReport, error) {
 func (s *Sess) RemovePDR(req *ie.IE) ([]report.USAReport, error) {
 	pdrid, err := req.PDRID()
 	if err != nil {
-		return nil, err
+		return nil, ErrMissingMandatoryIE
 	}
 
 	pdrInfo, ok := s.PDRIDs[pdrid]
 	if !ok {
-		return nil, errors.Errorf("RemovePDR: PDR(%#x) not found", pdrid)
+		return nil, ErrRuleNotFound
 	}
 
-	err = s.rnode.driver.RemovePDR(s.LocalID, req)
-	if err != nil {
-		return nil, err
+	if err = s.rnode.driver.RemovePDR(s.LocalID, req); err != nil {
+		return nil, ErrRuleCreationModificationFailed
 	}
 
 	var usars []report.USAReport
@@ -240,44 +249,46 @@ func (s *Sess) RemovePDR(req *ie.IE) ([]report.USAReport, error) {
 func (s *Sess) CreateFAR(req *ie.IE) error {
 	id, err := req.FARID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
 	}
-	s.FARIDs[id] = struct{}{}
 
-	err = s.rnode.driver.CreateFAR(s.LocalID, req)
-	if err != nil {
-		return err
+	if err := s.rnode.driver.CreateFAR(s.LocalID, req); err != nil {
+		return ErrRuleCreationModificationFailed
 	}
+
+	s.FARIDs[id] = struct{}{}
 	return nil
 }
 
 func (s *Sess) UpdateFAR(req *ie.IE) error {
 	id, err := req.FARID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
 	}
 
-	_, ok := s.FARIDs[id]
-	if !ok {
-		return errors.Errorf("UpdateFAR: FAR(%#x) not found", id)
+	if _, ok := s.FARIDs[id]; !ok {
+		return ErrRuleNotFound
 	}
-	return s.rnode.driver.UpdateFAR(s.LocalID, req)
+	if err := s.rnode.driver.UpdateFAR(s.LocalID, req); err != nil {
+		return ErrRuleCreationModificationFailed
+	}
+	return nil
 }
 
 func (s *Sess) RemoveFAR(req *ie.IE) error {
 	id, err := req.FARID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
 	}
 
 	_, ok := s.FARIDs[id]
 	if !ok {
-		return errors.Errorf("RemoveFAR: FAR(%#x) not found", id)
+		return ErrRuleNotFound
 	}
 
 	err = s.rnode.driver.RemoveFAR(s.LocalID, req)
 	if err != nil {
-		return err
+		return ErrRuleCreationModificationFailed
 	}
 
 	delete(s.FARIDs, id)
@@ -287,44 +298,46 @@ func (s *Sess) RemoveFAR(req *ie.IE) error {
 func (s *Sess) CreateQER(req *ie.IE) error {
 	id, err := req.QERID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
 	}
-	s.QERIDs[id] = struct{}{}
 
 	err = s.rnode.driver.CreateQER(s.LocalID, req)
 	if err != nil {
-		return err
+		return ErrRuleCreationModificationFailed
 	}
+
+	s.QERIDs[id] = struct{}{}
 	return nil
 }
 
 func (s *Sess) UpdateQER(req *ie.IE) error {
 	id, err := req.QERID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
 	}
 
-	_, ok := s.QERIDs[id]
-	if !ok {
-		return errors.Errorf("UpdateQER: QER(%#x) not found", id)
+	if _, ok := s.QERIDs[id]; !ok {
+		return ErrRuleNotFound
 	}
-	return s.rnode.driver.UpdateQER(s.LocalID, req)
+	if err := s.rnode.driver.UpdateQER(s.LocalID, req); err != nil {
+		return ErrRuleCreationModificationFailed
+	}
+	return nil
 }
 
 func (s *Sess) RemoveQER(req *ie.IE) error {
 	id, err := req.QERID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
 	}
 
 	_, ok := s.QERIDs[id]
 	if !ok {
-		return errors.Errorf("RemoveQER: QER(%#x) not found", id)
+		return ErrRuleNotFound
 	}
 
-	err = s.rnode.driver.RemoveQER(s.LocalID, req)
-	if err != nil {
-		return err
+	if err = s.rnode.driver.RemoveQER(s.LocalID, req); err != nil {
+		return ErrRuleCreationModificationFailed
 	}
 
 	delete(s.QERIDs, id)
@@ -334,7 +347,12 @@ func (s *Sess) RemoveQER(req *ie.IE) error {
 func (s *Sess) CreateURR(req *ie.IE) error {
 	id, err := req.URRID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
+	}
+
+	err = s.rnode.driver.CreateURR(s.LocalID, req)
+	if err != nil {
+		return ErrRuleCreationModificationFailed
 	}
 
 	mInfo := &ie.IE{}
@@ -358,24 +376,25 @@ func (s *Sess) CreateURR(req *ie.IE) error {
 			MNOP: mInfo.HasMNOP(),
 		},
 	}
-
-	err = s.rnode.driver.CreateURR(s.LocalID, req)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
 func (s *Sess) UpdateURR(req *ie.IE) ([]report.USAReport, error) {
 	id, err := req.URRID()
 	if err != nil {
-		return nil, err
+		return nil, ErrMissingMandatoryIE
 	}
 
 	urrInfo, ok := s.URRIDs[id]
 	if !ok {
-		return nil, errors.Errorf("UpdateURR: URR[%#x] not found", id)
+		return nil, ErrRuleNotFound
 	}
+
+	usars, err := s.rnode.driver.UpdateURR(s.LocalID, req)
+	if err != nil {
+		return nil, ErrRuleCreationModificationFailed
+	}
+
 	for _, x := range req.ChildIEs {
 		switch x.Type {
 		case ie.MeasurementMethod:
@@ -391,29 +410,26 @@ func (s *Sess) UpdateURR(req *ie.IE) ([]report.USAReport, error) {
 		}
 	}
 
-	usars, err := s.rnode.driver.UpdateURR(s.LocalID, req)
-	if err != nil {
-		return nil, err
-	}
 	return usars, nil
 }
 
 func (s *Sess) RemoveURR(req *ie.IE) ([]report.USAReport, error) {
 	id, err := req.URRID()
 	if err != nil {
-		return nil, err
+		return nil, ErrMissingMandatoryIE
 	}
 
 	info, ok := s.URRIDs[id]
 	if !ok {
-		return nil, errors.Errorf("RemoveURR: URR[%#x] not found", id)
+		return nil, ErrRuleNotFound
 	}
-	info.removed = true // remove URRInfo later
 
 	usars, err := s.rnode.driver.RemoveURR(s.LocalID, req)
 	if err != nil {
-		return nil, err
+		return nil, ErrRuleCreationModificationFailed
 	}
+
+	info.removed = true // remove URRInfo later
 
 	// indicates usage report being reported for a URR due to the removal of the URR
 	for i := range usars {
@@ -425,17 +441,16 @@ func (s *Sess) RemoveURR(req *ie.IE) ([]report.USAReport, error) {
 func (s *Sess) QueryURR(req *ie.IE) ([]report.USAReport, error) {
 	id, err := req.URRID()
 	if err != nil {
-		return nil, err
+		return nil, ErrMissingMandatoryIE
 	}
 
-	_, ok := s.URRIDs[id]
-	if !ok {
-		return nil, errors.Errorf("QueryURR: URR[%#x] not found", id)
+	if _, ok := s.URRIDs[id]; !ok {
+		return nil, ErrRuleNotFound
 	}
 
 	usars, err := s.rnode.driver.QueryURR(s.LocalID, id)
 	if err != nil {
-		return nil, err
+		return nil, ErrRuleCreationModificationFailed
 	}
 
 	// indicates an immediate report reported on CP function demand
@@ -448,44 +463,47 @@ func (s *Sess) QueryURR(req *ie.IE) ([]report.USAReport, error) {
 func (s *Sess) CreateBAR(req *ie.IE) error {
 	id, err := req.BARID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
 	}
-	s.BARIDs[id] = struct{}{}
 
 	err = s.rnode.driver.CreateBAR(s.LocalID, req)
 	if err != nil {
-		return err
+		return ErrRuleCreationModificationFailed
 	}
+
+	s.BARIDs[id] = struct{}{}
 	return nil
 }
 
 func (s *Sess) UpdateBAR(req *ie.IE) error {
 	id, err := req.BARID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
 	}
 
 	_, ok := s.BARIDs[id]
 	if !ok {
-		return errors.Errorf("UpdateBAR: BAR(%#x) not found", id)
+		return ErrRuleNotFound
 	}
-	return s.rnode.driver.UpdateBAR(s.LocalID, req)
+	if err = s.rnode.driver.UpdateBAR(s.LocalID, req); err != nil {
+		return ErrRuleCreationModificationFailed
+	}
+	return nil
 }
 
 func (s *Sess) RemoveBAR(req *ie.IE) error {
 	id, err := req.BARID()
 	if err != nil {
-		return err
+		return ErrMissingMandatoryIE
 	}
 
 	_, ok := s.BARIDs[id]
 	if !ok {
-		return errors.Errorf("RemoveBAR: BAR(%#x) not found", id)
+		return ErrRuleNotFound
 	}
 
-	err = s.rnode.driver.RemoveBAR(s.LocalID, req)
-	if err != nil {
-		return err
+	if err = s.rnode.driver.RemoveBAR(s.LocalID, req); err != nil {
+		return ErrRuleCreationModificationFailed
 	}
 
 	delete(s.BARIDs, id)

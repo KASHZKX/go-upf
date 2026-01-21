@@ -2,8 +2,8 @@ package pfcp
 
 import (
 	"net"
-	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/wmnsk/go-pfcp/ie"
 	"github.com/wmnsk/go-pfcp/message"
 
@@ -14,16 +14,17 @@ func (s *PfcpServer) handleSessionEstablishmentRequest(
 	req *message.SessionEstablishmentRequest,
 	addr net.Addr,
 ) {
-	// TODO: error response
 	s.log.Infoln("handleSessionEstablishmentRequest")
 
 	if req.NodeID == nil {
 		s.log.Errorln("not found NodeID")
+		s.sendSessEstFailRsp(req, addr, ie.CauseMandatoryIEMissing)
 		return
 	}
 	rnodeid, err := req.NodeID.NodeID()
 	if err != nil {
 		s.log.Errorln(err)
+		s.sendSessEstFailRsp(req, addr, ie.CauseMandatoryIEMissing)
 		return
 	}
 	s.log.Debugf("remote nodeid: %v\n", rnodeid)
@@ -31,16 +32,19 @@ func (s *PfcpServer) handleSessionEstablishmentRequest(
 	rnode, ok := s.rnodes[rnodeid]
 	if !ok {
 		s.log.Errorf("not found NodeID %v\n", rnodeid)
+		s.sendSessEstFailRsp(req, addr, ie.CauseNoEstablishedPFCPAssociation)
 		return
 	}
 
 	if req.CPFSEID == nil {
 		s.log.Errorln("not found CP F-SEID")
+		s.sendSessEstFailRsp(req, addr, ie.CauseMandatoryIEMissing)
 		return
 	}
 	fseid, err := req.CPFSEID.FSEID()
 	if err != nil {
 		s.log.Errorln(err)
+		s.sendSessEstFailRsp(req, addr, ie.CauseMandatoryIEMissing)
 		return
 	}
 	s.log.Debugf("fseid.SEID: %#x\n", fseid.SEID)
@@ -49,40 +53,56 @@ func (s *PfcpServer) handleSessionEstablishmentRequest(
 	sess := rnode.NewSess(fseid.SEID)
 
 	// TODO: rollback transaction
+	// Solved by deleting sess if one of operation fails (all or nothing)
 	for _, i := range req.CreateFAR {
-		err = sess.CreateFAR(i)
-		if err != nil {
-			sess.log.Errorf("Est CreateFAR error: %+v", err)
+		if err = sess.CreateFAR(i); err != nil {
+			sess.log.Errorf("Est CreateFAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessEstFailRsp(req, addr, cause)
+			rnode.DeleteSess(sess.LocalID)
+			return
 		}
 	}
 
 	for _, i := range req.CreateQER {
-		err = sess.CreateQER(i)
-		if err != nil {
-			sess.log.Errorf("Est CreateQER error: %+v", err)
+		if err = sess.CreateQER(i); err != nil {
+			sess.log.Errorf("Est CreateQER error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessEstFailRsp(req, addr, cause)
+			rnode.DeleteSess(sess.LocalID)
+			return
 		}
 	}
 
 	for _, i := range req.CreateURR {
-		err = sess.CreateURR(i)
-		if err != nil {
-			sess.log.Errorf("Est CreateURR error: %+v", err)
+		if err = sess.CreateURR(i); err != nil {
+			sess.log.Errorf("Est CreateURR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessEstFailRsp(req, addr, cause)
+			rnode.DeleteSess(sess.LocalID)
+			return
 		}
 	}
 
 	if req.CreateBAR != nil {
-		err = sess.CreateBAR(req.CreateBAR)
-		if err != nil {
-			sess.log.Errorf("Est CreateBAR error: %+v", err)
+		if err = sess.CreateBAR(req.CreateBAR); err != nil {
+			sess.log.Errorf("Est CreateBAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessEstFailRsp(req, addr, cause)
+			rnode.DeleteSess(sess.LocalID)
+			return
 		}
 	}
 
 	CreatedPDRList := make([]*ie.IE, 0)
 
 	for _, i := range req.CreatePDR {
-		err = sess.CreatePDR(i)
-		if err != nil {
-			sess.log.Errorf("Est CreatePDR error: %+v", err)
+		if err = sess.CreatePDR(i); err != nil {
+			sess.log.Errorf("Est CreatePDR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessEstFailRsp(req, addr, cause)
+			rnode.DeleteSess(sess.LocalID)
+			return
 		}
 
 		ueIPAddress := getUEAddressFromPDR(i)
@@ -132,7 +152,6 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	req *message.SessionModificationRequest,
 	addr net.Addr,
 ) {
-	// TODO: error response
 	s.log.Infoln("handleSessionModificationRequest")
 
 	sess, err := s.lnode.Sess(req.SEID())
@@ -147,7 +166,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 			ie.NewCause(ie.CauseSessionContextNotFound),
 		)
 
-		err = s.sendRspTo(rsp, addr)
+		err := s.sendRspTo(rsp, addr)
 		if err != nil {
 			s.log.Errorln(err)
 			return
@@ -163,63 +182,75 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		// When present, it shall contain the unique identifier of the new SMF.
 		rnodeid, err1 := req.NodeID.NodeID()
 		if err1 != nil {
-			s.log.Errorln(err)
+			s.log.Errorln(err1)
 			return
 		}
 		s.log.Debugf("new remote nodeid: %v\n", rnodeid)
 		s.UpdateNodeID(sess.rnode, rnodeid)
 	}
 
+	// TODO : rollback transaction
+
 	for _, i := range req.CreateFAR {
-		err = sess.CreateFAR(i)
-		if err != nil {
-			sess.log.Errorf("Mod CreateFAR error: %+v", err)
+		if err := sess.CreateFAR(i); err != nil {
+			sess.log.Errorf("Mod CreateFAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	for _, i := range req.CreateQER {
-		err = sess.CreateQER(i)
-		if err != nil {
-			sess.log.Errorf("Mod CreateQER error: %+v", err)
+		if err := sess.CreateQER(i); err != nil {
+			sess.log.Errorf("Mod CreateQER error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	for _, i := range req.CreateURR {
-		err = sess.CreateURR(i)
-		if err != nil {
-			if strings.Contains(err.Error(), "file exists") {
-				sess.log.Warnf("Mod CreateURR error: %+v", err)
-			} else {
-				sess.log.Errorf("Mod CreateURR error: %+v", err)
-			}
+		if err := sess.CreateURR(i); err != nil {
+			sess.log.Errorf("Mod CreateURR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	if req.CreateBAR != nil {
-		err = sess.CreateBAR(req.CreateBAR)
-		if err != nil {
-			sess.log.Errorf("Mod CreateBAR error: %+v", err)
+		if err := sess.CreateBAR(req.CreateBAR); err != nil {
+			sess.log.Errorf("Mod CreateBAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	for _, i := range req.CreatePDR {
-		err = sess.CreatePDR(i)
-		if err != nil {
-			sess.log.Errorf("Mod CreatePDR error: %+v", err)
+		if err := sess.CreatePDR(i); err != nil {
+			sess.log.Errorf("Mod CreatePDR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	for _, i := range req.RemoveFAR {
-		err = sess.RemoveFAR(i)
-		if err != nil {
-			sess.log.Errorf("Mod RemoveFAR error: %+v", err)
+		if err := sess.RemoveFAR(i); err != nil {
+			sess.log.Errorf("Mod RemoveFAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	for _, i := range req.RemoveQER {
-		err = sess.RemoveQER(i)
-		if err != nil {
-			sess.log.Errorf("Mod RemoveQER error: %+v", err)
+		if err := sess.RemoveQER(i); err != nil {
+			sess.log.Errorf("Mod RemoveQER error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
@@ -227,8 +258,10 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	for _, i := range req.RemoveURR {
 		rs, err1 := sess.RemoveURR(i)
 		if err1 != nil {
-			sess.log.Errorf("Mod RemoveURR error: %+v", err1)
-			continue
+			sess.log.Errorf("Mod RemoveURR error: %v", err1)
+			cause := pfcpCauseFromError(err1)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 		if len(rs) > 0 {
 			usars = append(usars, rs...)
@@ -236,16 +269,21 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	}
 
 	if req.RemoveBAR != nil {
-		err = sess.RemoveBAR(req.RemoveBAR)
-		if err != nil {
-			sess.log.Errorf("Mod RemoveBAR error: %+v", err)
+		if err := sess.RemoveBAR(req.RemoveBAR); err != nil {
+			sess.log.Errorf("Mod RemoveBAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	for _, i := range req.RemovePDR {
 		rs, err1 := sess.RemovePDR(i)
 		if err1 != nil {
-			sess.log.Errorf("Mod RemovePDR error: %+v", err1)
+			sess.log.Errorf("Mod RemovePDR error: %v", err1)
+			cause := pfcpCauseFromError(err1)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 		if len(rs) > 0 {
 			usars = append(usars, rs...)
@@ -253,24 +291,30 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	}
 
 	for _, i := range req.UpdateFAR {
-		err = sess.UpdateFAR(i)
-		if err != nil {
-			sess.log.Errorf("Mod UpdateFAR error: %+v", err)
+		if err := sess.UpdateFAR(i); err != nil {
+			sess.log.Errorf("Mod UpdateFAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	for _, i := range req.UpdateQER {
-		err = sess.UpdateQER(i)
-		if err != nil {
-			sess.log.Errorf("Mod UpdateQER error: %+v", err)
+		if err := sess.UpdateQER(i); err != nil {
+			sess.log.Errorf("Mod UpdateQER error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	for _, i := range req.UpdateURR {
 		rs, err1 := sess.UpdateURR(i)
 		if err1 != nil {
-			sess.log.Errorf("Mod UpdateURR error: %+v", err1)
-			continue
+			sess.log.Errorf("Mod UpdateURR error: %v", err1)
+			cause := pfcpCauseFromError(err1)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 		if len(rs) > 0 {
 			usars = append(usars, rs...)
@@ -278,16 +322,21 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	}
 
 	if req.UpdateBAR != nil {
-		err = sess.UpdateBAR(req.UpdateBAR)
-		if err != nil {
-			sess.log.Errorf("Mod UpdateBAR error: %+v", err)
+		if err := sess.UpdateBAR(req.UpdateBAR); err != nil {
+			sess.log.Errorf("Mod UpdateBAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 	}
 
 	for _, i := range req.UpdatePDR {
 		rs, err1 := sess.UpdatePDR(i)
 		if err1 != nil {
-			sess.log.Errorf("Mod UpdatePDR error: %+v", err1)
+			sess.log.Errorf("Mod UpdatePDR error: %v", err1)
+			cause := pfcpCauseFromError(err1)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 		if len(rs) > 0 {
 			usars = append(usars, rs...)
@@ -297,8 +346,10 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	for _, i := range req.QueryURR {
 		rs, err1 := sess.QueryURR(i)
 		if err1 != nil {
-			sess.log.Errorf("Mod QueryURR error: %+v", err1)
-			continue
+			sess.log.Errorf("Mod QueryURR error: %v", err1)
+			cause := pfcpCauseFromError(err1)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
 		}
 		if len(rs) > 0 {
 			usars = append(usars, rs...)
@@ -331,8 +382,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		}
 	}
 
-	err = s.sendRspTo(rsp, addr)
-	if err != nil {
+	if err := s.sendRspTo(rsp, addr); err != nil {
 		s.log.Errorln(err)
 		return
 	}
@@ -484,4 +534,59 @@ func getPDRIDFromPDR(pdr *ie.IE) uint16 {
 		}
 	}
 	return 0
+}
+
+func (s *PfcpServer) sendSessEstFailRsp(
+	req *message.SessionEstablishmentRequest,
+	addr net.Addr,
+	cause uint8,
+) {
+	rsp := message.NewSessionEstablishmentResponse(
+		0, // mp
+		0, // fo
+		0, // seid (session 尚未建立)
+		req.Header.SequenceNumber,
+		0, // pri
+		ie.NewCause(cause),
+	)
+	if err := s.sendRspTo(rsp, addr); err != nil {
+		s.log.Errorln(err)
+	}
+}
+
+func (s *PfcpServer) sendSessModFailRsp(
+	req *message.SessionModificationRequest,
+	sess *Sess,
+	addr net.Addr,
+	cause uint8,
+) {
+	rsp := message.NewSessionModificationResponse(
+		0,             // mp
+		0,             // fo
+		sess.RemoteID, // seid
+		req.Header.SequenceNumber,
+		0, // pri
+		ie.NewCause(cause),
+	)
+	err := s.sendRspTo(rsp, addr)
+	if err != nil {
+		s.log.Errorln(err)
+	}
+}
+
+func pfcpCauseFromError(err error) uint8 {
+	switch {
+	case errors.Is(err, ErrMissingMandatoryIE):
+		return ie.CauseMandatoryIEMissing
+
+	case errors.Is(err, ErrMissingConditionalIE):
+		return ie.CauseConditionalIEMissing
+
+	case errors.Is(err, ErrRuleNotFound) ||
+		errors.Is(err, ErrRuleCreationModificationFailed):
+		return ie.CauseRuleCreationModificationFailure
+
+	default:
+		return ie.CauseSystemFailure
+	}
 }
