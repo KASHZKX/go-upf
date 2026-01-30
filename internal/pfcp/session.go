@@ -375,6 +375,14 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		plan.QueryURRs = append(plan.QueryURRs, p)
 	}
 
+	// Validate mutual exclusion across operations
+	if err := validateMutualExclusion(plan); err != nil {
+		sess.log.Warnf("Mod mutual exclusion validation error: %v", err)
+		cause := pfcpCauseFromError(err)
+		s.sendSessModFailRsp(req, sess, addr, cause)
+		return
+	}
+
 	// ========================================================================
 	// PHASE 2: Execution - Execute all operations via gtp5gnl (best-effort)
 	// ========================================================================
@@ -697,10 +705,173 @@ func pfcpCauseFromError(err error) uint8 {
 		return ie.CauseConditionalIEMissing
 
 	case errors.Is(err, ErrRuleNotFound) ||
-		errors.Is(err, ErrRuleCreationModificationFailed):
+		errors.Is(err, ErrRuleCreationModificationFailed) ||
+		errors.Is(err, ErrMutualExclusionConflict):
 		return ie.CauseRuleCreationModificationFailure
 
 	default:
 		return ie.CauseSystemFailure
 	}
+}
+
+// validateMutualExclusion checks for conflicting operations on the same rule within a single request.
+// Conflicts detected:
+// - Remove + Update same ID (update will fail after remove)
+// - Remove + Query same URR ID (query will fail after remove)
+// - Remove + Remove same ID (duplicate remove)
+// - Create + Create same ID (duplicate create)
+// Allowed combinations:
+// - Create + Update same ID
+// - Create + Remove same ID
+func validateMutualExclusion(plan *forwarder.ModificationPlan) error {
+	// Helper to check duplicates in a slice
+	checkDuplicates := func(ids []uint32, opName string) error {
+		seen := make(map[uint32]bool)
+		for _, id := range ids {
+			if seen[id] {
+				return errors.Wrapf(ErrMutualExclusionConflict, "duplicate %s for ID %d", opName, id)
+			}
+			seen[id] = true
+		}
+		return nil
+	}
+
+	// Helper to check overlap between two ID slices
+	checkOverlap := func(ids1, ids2 []uint32, op1Name, op2Name string) error {
+		set := make(map[uint32]bool)
+		for _, id := range ids1 {
+			set[id] = true
+		}
+		for _, id := range ids2 {
+			if set[id] {
+				return errors.Wrapf(ErrMutualExclusionConflict, "%s and %s conflict for ID %d", op1Name, op2Name, id)
+			}
+		}
+		return nil
+	}
+
+	// Collect IDs from plans
+	collectPDRIDs := func(plans []*forwarder.PDRPlan) []uint32 {
+		ids := make([]uint32, 0, len(plans))
+		for _, p := range plans {
+			ids = append(ids, uint32(p.PDRID))
+		}
+		return ids
+	}
+	collectFARIDs := func(plans []*forwarder.FARPlan) []uint32 {
+		ids := make([]uint32, 0, len(plans))
+		for _, p := range plans {
+			ids = append(ids, p.FARID)
+		}
+		return ids
+	}
+	collectQERIDs := func(plans []*forwarder.QERPlan) []uint32 {
+		ids := make([]uint32, 0, len(plans))
+		for _, p := range plans {
+			ids = append(ids, p.QERID)
+		}
+		return ids
+	}
+	collectURRIDs := func(plans []*forwarder.URRPlan) []uint32 {
+		ids := make([]uint32, 0, len(plans))
+		for _, p := range plans {
+			ids = append(ids, p.URRID)
+		}
+		return ids
+	}
+	collectQueryURRIDs := func(plans []*forwarder.URRPlan) []uint32 {
+		ids := make([]uint32, 0, len(plans))
+		for _, p := range plans {
+			ids = append(ids, p.QueryURRID)
+		}
+		return ids
+	}
+	collectBARIDs := func(plans []*forwarder.BARPlan) []uint32 {
+		ids := make([]uint32, 0, len(plans))
+		for _, p := range plans {
+			ids = append(ids, uint32(p.BARID))
+		}
+		return ids
+	}
+
+	// === PDR checks ===
+	createPDRIDs := collectPDRIDs(plan.CreatePDRs)
+	removePDRIDs := collectPDRIDs(plan.RemovePDRs)
+	updatePDRIDs := collectPDRIDs(plan.UpdatePDRs)
+
+	if err := checkDuplicates(createPDRIDs, "CreatePDR"); err != nil {
+		return err
+	}
+	if err := checkDuplicates(removePDRIDs, "RemovePDR"); err != nil {
+		return err
+	}
+	if err := checkOverlap(removePDRIDs, updatePDRIDs, "RemovePDR", "UpdatePDR"); err != nil {
+		return err
+	}
+
+	// === FAR checks ===
+	createFARIDs := collectFARIDs(plan.CreateFARs)
+	removeFARIDs := collectFARIDs(plan.RemoveFARs)
+	updateFARIDs := collectFARIDs(plan.UpdateFARs)
+
+	if err := checkDuplicates(createFARIDs, "CreateFAR"); err != nil {
+		return err
+	}
+	if err := checkDuplicates(removeFARIDs, "RemoveFAR"); err != nil {
+		return err
+	}
+	if err := checkOverlap(removeFARIDs, updateFARIDs, "RemoveFAR", "UpdateFAR"); err != nil {
+		return err
+	}
+
+	// === QER checks ===
+	createQERIDs := collectQERIDs(plan.CreateQERs)
+	removeQERIDs := collectQERIDs(plan.RemoveQERs)
+	updateQERIDs := collectQERIDs(plan.UpdateQERs)
+
+	if err := checkDuplicates(createQERIDs, "CreateQER"); err != nil {
+		return err
+	}
+	if err := checkDuplicates(removeQERIDs, "RemoveQER"); err != nil {
+		return err
+	}
+	if err := checkOverlap(removeQERIDs, updateQERIDs, "RemoveQER", "UpdateQER"); err != nil {
+		return err
+	}
+
+	// === URR checks ===
+	createURRIDs := collectURRIDs(plan.CreateURRs)
+	removeURRIDs := collectURRIDs(plan.RemoveURRs)
+	updateURRIDs := collectURRIDs(plan.UpdateURRs)
+	queryURRIDs := collectQueryURRIDs(plan.QueryURRs)
+
+	if err := checkDuplicates(createURRIDs, "CreateURR"); err != nil {
+		return err
+	}
+	if err := checkDuplicates(removeURRIDs, "RemoveURR"); err != nil {
+		return err
+	}
+	if err := checkOverlap(removeURRIDs, updateURRIDs, "RemoveURR", "UpdateURR"); err != nil {
+		return err
+	}
+	if err := checkOverlap(removeURRIDs, queryURRIDs, "RemoveURR", "QueryURR"); err != nil {
+		return err
+	}
+
+	// === BAR checks ===
+	createBARIDs := collectBARIDs(plan.CreateBARs)
+	removeBARIDs := collectBARIDs(plan.RemoveBARs)
+	updateBARIDs := collectBARIDs(plan.UpdateBARs)
+
+	if err := checkDuplicates(createBARIDs, "CreateBAR"); err != nil {
+		return err
+	}
+	if err := checkDuplicates(removeBARIDs, "RemoveBAR"); err != nil {
+		return err
+	}
+	if err := checkOverlap(removeBARIDs, updateBARIDs, "RemoveBAR", "UpdateBAR"); err != nil {
+		return err
+	}
+
+	return nil
 }

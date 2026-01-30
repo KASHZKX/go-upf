@@ -48,6 +48,7 @@ var (
 	ErrMissingConditionalIE           = errors.New("conditional IE missing or incorrect")
 	ErrRuleNotFound                   = errors.New("rule not found")
 	ErrRuleCreationModificationFailed = errors.New("rule creation/modification failed")
+	ErrMutualExclusionConflict        = errors.New("conflicting operations on same rule")
 )
 
 func (s *Sess) Close() []report.USAReport {
