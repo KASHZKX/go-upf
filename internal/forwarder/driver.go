@@ -38,6 +38,34 @@ type Driver interface {
 	RemoveBAR(uint64, *ie.IE) error
 
 	HandleReport(report.Handler)
+
+	// Plan-based methods for two-phase commit
+	// Build*Plan methods parse and validate IEs without executing
+	BuildCreatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error)
+	BuildUpdatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error)
+	BuildRemovePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error)
+
+	BuildCreateFARPlan(lSeid uint64, req *ie.IE) (*FARPlan, error)
+	BuildUpdateFARPlan(lSeid uint64, req *ie.IE) (*FARPlan, error)
+	BuildRemoveFARPlan(lSeid uint64, req *ie.IE) (*FARPlan, error)
+
+	BuildCreateQERPlan(lSeid uint64, req *ie.IE) (*QERPlan, error)
+	BuildUpdateQERPlan(lSeid uint64, req *ie.IE) (*QERPlan, error)
+	BuildRemoveQERPlan(lSeid uint64, req *ie.IE) (*QERPlan, error)
+
+	BuildCreateURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error)
+	BuildUpdateURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error)
+	BuildRemoveURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error)
+	BuildQueryURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error)
+
+	BuildCreateBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error)
+	BuildUpdateBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error)
+	BuildRemoveBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error)
+
+	// ExecuteModificationPlan executes all operations in the plan
+	// If dryRun is true, only validates without executing gtp5gnl calls
+	// Uses best-effort execution: continues on failure, logs errors
+	ExecuteModificationPlan(plan *ModificationPlan, dryRun bool) (*ExecutionResult, error)
 }
 
 func NewDriver(wg *sync.WaitGroup, cfg *factory.Config) (Driver, error) {

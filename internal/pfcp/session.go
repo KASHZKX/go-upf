@@ -7,6 +7,7 @@ import (
 	"github.com/wmnsk/go-pfcp/ie"
 	"github.com/wmnsk/go-pfcp/message"
 
+	"github.com/free5gc/go-upf/internal/forwarder"
 	"github.com/free5gc/go-upf/internal/report"
 )
 
@@ -189,173 +190,287 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		s.UpdateNodeID(sess.rnode, rnodeid)
 	}
 
-	// TODO : rollback transaction
+	// ========================================================================
+	// PHASE 1: Validation - Build all plans and validate without execution
+	// ========================================================================
+	plan := forwarder.NewModificationPlan(sess.LocalID)
 
+	// Validate Create operations - order: FAR -> QER -> URR -> BAR -> PDR
 	for _, i := range req.CreateFAR {
-		if err := sess.CreateFAR(i); err != nil {
-			sess.log.Errorf("Mod CreateFAR error: %v", err)
+		p, err := sess.ValidateCreateFAR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateCreateFAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.CreateFARs = append(plan.CreateFARs, p)
 	}
 
 	for _, i := range req.CreateQER {
-		if err := sess.CreateQER(i); err != nil {
-			sess.log.Errorf("Mod CreateQER error: %v", err)
+		p, err := sess.ValidateCreateQER(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateCreateQER error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.CreateQERs = append(plan.CreateQERs, p)
 	}
 
 	for _, i := range req.CreateURR {
-		if err := sess.CreateURR(i); err != nil {
-			sess.log.Errorf("Mod CreateURR error: %v", err)
+		p, err := sess.ValidateCreateURR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateCreateURR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.CreateURRs = append(plan.CreateURRs, p)
 	}
 
 	if req.CreateBAR != nil {
-		if err := sess.CreateBAR(req.CreateBAR); err != nil {
-			sess.log.Errorf("Mod CreateBAR error: %v", err)
+		p, err := sess.ValidateCreateBAR(req.CreateBAR)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateCreateBAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.CreateBARs = append(plan.CreateBARs, p)
 	}
 
 	for _, i := range req.CreatePDR {
-		if err := sess.CreatePDR(i); err != nil {
-			sess.log.Errorf("Mod CreatePDR error: %v", err)
+		p, err := sess.ValidateCreatePDR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateCreatePDR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.CreatePDRs = append(plan.CreatePDRs, p)
 	}
 
-	for _, i := range req.RemoveFAR {
-		if err := sess.RemoveFAR(i); err != nil {
-			sess.log.Errorf("Mod RemoveFAR error: %v", err)
+	// Validate Remove operations - order: PDR -> BAR -> URR -> QER -> FAR
+	for _, i := range req.RemovePDR {
+		p, err := sess.ValidateRemovePDR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateRemovePDR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
-	}
-
-	for _, i := range req.RemoveQER {
-		if err := sess.RemoveQER(i); err != nil {
-			sess.log.Errorf("Mod RemoveQER error: %v", err)
-			cause := pfcpCauseFromError(err)
-			s.sendSessModFailRsp(req, sess, addr, cause)
-			return
-		}
-	}
-
-	var usars []report.USAReport
-	for _, i := range req.RemoveURR {
-		rs, err1 := sess.RemoveURR(i)
-		if err1 != nil {
-			sess.log.Errorf("Mod RemoveURR error: %v", err1)
-			cause := pfcpCauseFromError(err1)
-			s.sendSessModFailRsp(req, sess, addr, cause)
-			return
-		}
-		if len(rs) > 0 {
-			usars = append(usars, rs...)
-		}
+		plan.RemovePDRs = append(plan.RemovePDRs, p)
 	}
 
 	if req.RemoveBAR != nil {
-		if err := sess.RemoveBAR(req.RemoveBAR); err != nil {
-			sess.log.Errorf("Mod RemoveBAR error: %v", err)
+		p, err := sess.ValidateRemoveBAR(req.RemoveBAR)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateRemoveBAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.RemoveBARs = append(plan.RemoveBARs, p)
 	}
 
-	for _, i := range req.RemovePDR {
-		rs, err1 := sess.RemovePDR(i)
-		if err1 != nil {
-			sess.log.Errorf("Mod RemovePDR error: %v", err1)
-			cause := pfcpCauseFromError(err1)
+	for _, i := range req.RemoveURR {
+		p, err := sess.ValidateRemoveURR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateRemoveURR error: %v", err)
+			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
-		if len(rs) > 0 {
-			usars = append(usars, rs...)
-		}
+		plan.RemoveURRs = append(plan.RemoveURRs, p)
 	}
 
+	for _, i := range req.RemoveQER {
+		p, err := sess.ValidateRemoveQER(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateRemoveQER error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
+		}
+		plan.RemoveQERs = append(plan.RemoveQERs, p)
+	}
+
+	for _, i := range req.RemoveFAR {
+		p, err := sess.ValidateRemoveFAR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateRemoveFAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
+		}
+		plan.RemoveFARs = append(plan.RemoveFARs, p)
+	}
+
+	// Validate Update operations - order: FAR -> QER -> URR -> BAR -> PDR
 	for _, i := range req.UpdateFAR {
-		if err := sess.UpdateFAR(i); err != nil {
-			sess.log.Errorf("Mod UpdateFAR error: %v", err)
+		p, err := sess.ValidateUpdateFAR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateUpdateFAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.UpdateFARs = append(plan.UpdateFARs, p)
 	}
 
 	for _, i := range req.UpdateQER {
-		if err := sess.UpdateQER(i); err != nil {
-			sess.log.Errorf("Mod UpdateQER error: %v", err)
+		p, err := sess.ValidateUpdateQER(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateUpdateQER error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.UpdateQERs = append(plan.UpdateQERs, p)
 	}
 
 	for _, i := range req.UpdateURR {
-		rs, err1 := sess.UpdateURR(i)
-		if err1 != nil {
-			sess.log.Errorf("Mod UpdateURR error: %v", err1)
-			cause := pfcpCauseFromError(err1)
-			s.sendSessModFailRsp(req, sess, addr, cause)
-			return
-		}
-		if len(rs) > 0 {
-			usars = append(usars, rs...)
-		}
-	}
-
-	if req.UpdateBAR != nil {
-		if err := sess.UpdateBAR(req.UpdateBAR); err != nil {
-			sess.log.Errorf("Mod UpdateBAR error: %v", err)
+		p, err := sess.ValidateUpdateURR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateUpdateURR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.UpdateURRs = append(plan.UpdateURRs, p)
+	}
+
+	if req.UpdateBAR != nil {
+		p, err := sess.ValidateUpdateBAR(req.UpdateBAR)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateUpdateBAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
+		}
+		plan.UpdateBARs = append(plan.UpdateBARs, p)
 	}
 
 	for _, i := range req.UpdatePDR {
-		rs, err1 := sess.UpdatePDR(i)
-		if err1 != nil {
-			sess.log.Errorf("Mod UpdatePDR error: %v", err1)
-			cause := pfcpCauseFromError(err1)
+		p, err := sess.ValidateUpdatePDR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateUpdatePDR error: %v", err)
+			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
-		if len(rs) > 0 {
-			usars = append(usars, rs...)
-		}
+		plan.UpdatePDRs = append(plan.UpdatePDRs, p)
 	}
 
+	// Validate Query operations
 	for _, i := range req.QueryURR {
-		rs, err1 := sess.QueryURR(i)
-		if err1 != nil {
-			sess.log.Errorf("Mod QueryURR error: %v", err1)
-			cause := pfcpCauseFromError(err1)
+		p, err := sess.ValidateQueryURR(i)
+		if err != nil {
+			sess.log.Errorf("Mod ValidateQueryURR error: %v", err)
+			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
 		}
+		plan.QueryURRs = append(plan.QueryURRs, p)
+	}
+
+	// ========================================================================
+	// PHASE 2: Execution - Execute all operations via gtp5gnl (best-effort)
+	// ========================================================================
+	execResult, _ := sess.rnode.driver.ExecuteModificationPlan(plan, false)
+
+	// ========================================================================
+	// PHASE 3: Apply - Update session internal state
+	// ========================================================================
+	var usars []report.USAReport
+
+	// Apply Create operations
+	for _, p := range plan.CreateFARs {
+		sess.ApplyCreateFAR(p)
+	}
+	for _, p := range plan.CreateQERs {
+		sess.ApplyCreateQER(p)
+	}
+	for _, p := range plan.CreateURRs {
+		sess.ApplyCreateURR(p)
+	}
+	for _, p := range plan.CreateBARs {
+		sess.ApplyCreateBAR(p)
+	}
+	for _, p := range plan.CreatePDRs {
+		sess.ApplyCreatePDR(p)
+	}
+
+	// Apply Remove operations (collect USAReports from PDR disassociation)
+	for _, p := range plan.RemovePDRs {
+		rs := sess.ApplyRemovePDR(p)
+		if len(rs) > 0 {
+			usars = append(usars, rs...)
+		}
+	}
+	for _, p := range plan.RemoveBARs {
+		sess.ApplyRemoveBAR(p)
+	}
+	for _, p := range plan.RemoveURRs {
+		sess.ApplyRemoveURR(p)
+	}
+	for _, p := range plan.RemoveQERs {
+		sess.ApplyRemoveQER(p)
+	}
+	for _, p := range plan.RemoveFARs {
+		sess.ApplyRemoveFAR(p)
+	}
+
+	// Apply Update operations (collect USAReports from PDR URR disassociation)
+	for _, p := range plan.UpdateFARs {
+		sess.ApplyUpdateFAR(p)
+	}
+	for _, p := range plan.UpdateQERs {
+		sess.ApplyUpdateQER(p)
+	}
+	for _, p := range plan.UpdateURRs {
+		sess.ApplyUpdateURR(p)
+	}
+	for _, p := range plan.UpdateBARs {
+		sess.ApplyUpdateBAR(p)
+	}
+	for _, p := range plan.UpdatePDRs {
+		rs := sess.ApplyUpdatePDR(p)
 		if len(rs) > 0 {
 			usars = append(usars, rs...)
 		}
 	}
 
+	// Apply Query operations
+	for _, p := range plan.QueryURRs {
+		sess.ApplyQueryURR(p)
+	}
+
+	// Collect USAReports from execution result (RemoveURR, UpdateURR, QueryURR)
+	if execResult != nil && len(execResult.USAReports) > 0 {
+		// Add trigger flags to execution result USAReports
+		for i := range execResult.USAReports {
+			r := &execResult.USAReports[i]
+			// Check if this is from RemoveURR
+			for _, p := range plan.RemoveURRs {
+				if p.URRID == r.URRID {
+					r.USARTrigger.Flags |= report.USAR_TRIG_TERMR
+					break
+				}
+			}
+			// Check if this is from QueryURR
+			for _, p := range plan.QueryURRs {
+				if p.QueryURRID == r.URRID {
+					r.USARTrigger.Flags |= report.USAR_TRIG_IMMER
+					break
+				}
+			}
+		}
+		usars = append(usars, execResult.USAReports...)
+	}
+
+	// Build response
 	rsp := message.NewSessionModificationResponse(
 		0,             // mp
 		0,             // fo
@@ -376,11 +491,10 @@ func (s *PfcpServer) handleSessionModificationRequest(
 				r.IEsWithinSessModRsp(
 					urrInfo.MeasureMethod, urrInfo.MeasureInformation)...,
 			))
-
-		if urrInfo.removed {
-			delete(sess.URRIDs, r.URRID)
-		}
 	}
+
+	// Cleanup removed URRs
+	sess.CleanupRemovedURRs()
 
 	if err := s.sendRspTo(rsp, addr); err != nil {
 		s.log.Errorln(err)
