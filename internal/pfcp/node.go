@@ -52,99 +52,92 @@ var (
 )
 
 func (s *Sess) Close() []report.USAReport {
-	for id := range s.FARIDs {
-		i := ie.NewRemoveFAR(ie.NewFARID(id))
-		err := s.RemoveFAR(i)
-		if err != nil {
-			s.log.Errorf("Remove FAR err: %v", err)
-		}
-	}
-	for id := range s.QERIDs {
-		i := ie.NewRemoveQER(ie.NewQERID(id))
-		err := s.RemoveQER(i)
-		if err != nil {
-			s.log.Errorf("Remove QER err: %v", err)
-		}
-	}
+	plan := forwarder.NewModificationPlan(s.LocalID)
 
-	var usars []report.USAReport
-	for id := range s.URRIDs {
-		i := ie.NewRemoveURR(ie.NewURRID(id))
-		rs, err := s.RemoveURR(i)
+	// Build Remove plans for all rules
+	for id := range s.FARIDs {
+		req := ie.NewRemoveFAR(ie.NewFARID(id))
+		p, err := s.rnode.driver.BuildRemoveFARPlan(s.LocalID, req)
 		if err != nil {
-			s.log.Errorf("Remove URR err: %v", err)
+			s.log.Errorf("Close BuildRemoveFARPlan[%#x] err: %v", id, err)
 			continue
 		}
-		if rs != nil {
-			usars = append(usars, rs...)
+		plan.RemoveFARs = append(plan.RemoveFARs, p)
+	}
+	for id := range s.QERIDs {
+		req := ie.NewRemoveQER(ie.NewQERID(id))
+		p, err := s.rnode.driver.BuildRemoveQERPlan(s.LocalID, req)
+		if err != nil {
+			s.log.Errorf("Close BuildRemoveQERPlan[%#x] err: %v", id, err)
+			continue
 		}
+		plan.RemoveQERs = append(plan.RemoveQERs, p)
+	}
+	for id := range s.URRIDs {
+		req := ie.NewRemoveURR(ie.NewURRID(id))
+		p, err := s.rnode.driver.BuildRemoveURRPlan(s.LocalID, req)
+		if err != nil {
+			s.log.Errorf("Close BuildRemoveURRPlan[%#x] err: %v", id, err)
+			continue
+		}
+		plan.RemoveURRs = append(plan.RemoveURRs, p)
 	}
 	for id := range s.BARIDs {
-		i := ie.NewRemoveBAR(ie.NewBARID(id))
-		err := s.RemoveBAR(i)
+		req := ie.NewRemoveBAR(ie.NewBARID(id))
+		p, err := s.rnode.driver.BuildRemoveBARPlan(s.LocalID, req)
 		if err != nil {
-			s.log.Errorf("Remove BAR err: %v", err)
+			s.log.Errorf("Close BuildRemoveBARPlan[%#x] err: %v", id, err)
+			continue
 		}
+		plan.RemoveBARs = append(plan.RemoveBARs, p)
 	}
 	for id := range s.PDRIDs {
-		i := ie.NewRemovePDR(ie.NewPDRID(id))
-		rs, err := s.RemovePDR(i)
+		req := ie.NewRemovePDR(ie.NewPDRID(id))
+		p, err := s.rnode.driver.BuildRemovePDRPlan(s.LocalID, req)
 		if err != nil {
-			s.log.Errorf("remove PDR err: %v", err)
+			s.log.Errorf("Close BuildRemovePDRPlan[%#x] err: %v", id, err)
+			continue
 		}
-		if rs != nil {
+		plan.RemovePDRs = append(plan.RemovePDRs, p)
+	}
+
+	// Execute all Remove operations (best-effort)
+	execResult, _ := s.rnode.driver.ExecuteModificationPlan(plan, false)
+
+	// Apply state changes and collect USAReports
+	var usars []report.USAReport
+
+	for _, p := range plan.RemovePDRs {
+		rs := s.ApplyRemovePDR(p)
+		if len(rs) > 0 {
 			usars = append(usars, rs...)
 		}
 	}
+	for _, p := range plan.RemoveBARs {
+		s.ApplyRemoveBAR(p)
+	}
+	for _, p := range plan.RemoveURRs {
+		s.ApplyRemoveURR(p)
+	}
+	for _, p := range plan.RemoveQERs {
+		s.ApplyRemoveQER(p)
+	}
+	for _, p := range plan.RemoveFARs {
+		s.ApplyRemoveFAR(p)
+	}
+
+	// Collect USAReports from execution result (RemoveURR)
+	if execResult != nil && len(execResult.USAReports) > 0 {
+		for i := range execResult.USAReports {
+			execResult.USAReports[i].USARTrigger.Flags |= report.USAR_TRIG_TERMR
+		}
+		usars = append(usars, execResult.USAReports...)
+	}
+
 	for _, q := range s.q {
 		close(q)
 	}
 	return usars
-}
-
-func (s *Sess) CreatePDR(req *ie.IE) error {
-	ies, err := req.CreatePDR()
-	if err != nil {
-		return ErrRuleCreationModificationFailed
-	}
-
-	if err = s.rnode.driver.CreatePDR(s.LocalID, req); err != nil {
-		return ErrRuleCreationModificationFailed
-	}
-
-	var pdrid uint16
-	urrids := make(map[uint32]struct{})
-	for _, i := range ies {
-		switch i.Type {
-		case ie.PDRID:
-			v, err1 := i.PDRID()
-			if err1 != nil {
-				return ErrMissingMandatoryIE
-			}
-			pdrid = v
-		case ie.URRID:
-			v, err1 := i.URRID()
-			if err1 != nil {
-				return ErrMissingConditionalIE
-			}
-			_, ok := s.URRIDs[v]
-			if !ok {
-				return ErrRuleCreationModificationFailed
-			}
-			urrids[v] = struct{}{}
-		}
-	}
-
-	for urrid := range urrids {
-		urrInfo := s.URRIDs[urrid]
-		urrInfo.refPdrNum++
-	}
-
-	s.PDRIDs[pdrid] = &PDRInfo{
-		RelatedURRIDs: urrids,
-	}
-
-	return nil
 }
 
 func (s *Sess) diassociateURR(urrid uint32) []report.USAReport {
@@ -169,194 +162,6 @@ func (s *Sess) diassociateURR(urrid uint32) []report.USAReport {
 	} else {
 		s.log.Errorf("diassociateURR: wrong refPdrNum(%d)", urrInfo.refPdrNum)
 	}
-	return nil
-}
-
-func (s *Sess) RemovePDR(req *ie.IE) ([]report.USAReport, error) {
-	pdrid, err := req.PDRID()
-	if err != nil {
-		return nil, ErrMissingMandatoryIE
-	}
-
-	pdrInfo, ok := s.PDRIDs[pdrid]
-	if !ok {
-		return nil, ErrRuleNotFound
-	}
-
-	if err = s.rnode.driver.RemovePDR(s.LocalID, req); err != nil {
-		return nil, ErrRuleCreationModificationFailed
-	}
-
-	var usars []report.USAReport
-	for urrid := range pdrInfo.RelatedURRIDs {
-		usar := s.diassociateURR(urrid)
-		if len(usar) > 0 {
-			usars = append(usars, usar...)
-		}
-	}
-	delete(s.PDRIDs, pdrid)
-	return usars, nil
-}
-
-func (s *Sess) CreateFAR(req *ie.IE) error {
-	id, err := req.FARID()
-	if err != nil {
-		return ErrMissingMandatoryIE
-	}
-
-	if err := s.rnode.driver.CreateFAR(s.LocalID, req); err != nil {
-		return ErrRuleCreationModificationFailed
-	}
-
-	s.FARIDs[id] = struct{}{}
-	return nil
-}
-
-func (s *Sess) RemoveFAR(req *ie.IE) error {
-	id, err := req.FARID()
-	if err != nil {
-		return ErrMissingMandatoryIE
-	}
-
-	_, ok := s.FARIDs[id]
-	if !ok {
-		return ErrRuleNotFound
-	}
-
-	err = s.rnode.driver.RemoveFAR(s.LocalID, req)
-	if err != nil {
-		return ErrRuleCreationModificationFailed
-	}
-
-	delete(s.FARIDs, id)
-	return nil
-}
-
-func (s *Sess) CreateQER(req *ie.IE) error {
-	id, err := req.QERID()
-	if err != nil {
-		return ErrMissingMandatoryIE
-	}
-
-	err = s.rnode.driver.CreateQER(s.LocalID, req)
-	if err != nil {
-		return ErrRuleCreationModificationFailed
-	}
-
-	s.QERIDs[id] = struct{}{}
-	return nil
-}
-
-func (s *Sess) RemoveQER(req *ie.IE) error {
-	id, err := req.QERID()
-	if err != nil {
-		return ErrMissingMandatoryIE
-	}
-
-	_, ok := s.QERIDs[id]
-	if !ok {
-		return ErrRuleNotFound
-	}
-
-	if err = s.rnode.driver.RemoveQER(s.LocalID, req); err != nil {
-		return ErrRuleCreationModificationFailed
-	}
-
-	delete(s.QERIDs, id)
-	return nil
-}
-
-func (s *Sess) CreateURR(req *ie.IE) error {
-	id, err := req.URRID()
-	if err != nil {
-		return ErrMissingMandatoryIE
-	}
-
-	err = s.rnode.driver.CreateURR(s.LocalID, req)
-	if err != nil {
-		return ErrRuleCreationModificationFailed
-	}
-
-	mInfo := &ie.IE{}
-	for _, x := range req.ChildIEs {
-		if x.Type == ie.MeasurementInformation {
-			mInfo = x
-			break
-		}
-	}
-	s.URRIDs[id] = &URRInfo{
-		MeasureMethod: report.MeasureMethod{
-			DURAT: req.HasDURAT(),
-			VOLUM: req.HasVOLUM(),
-			EVENT: req.HasEVENT(),
-		},
-		MeasureInformation: report.MeasureInformation{
-			MBQE: mInfo.HasMBQE(),
-			INAM: mInfo.HasINAM(),
-			RADI: mInfo.HasRADI(),
-			ISTM: mInfo.HasISTM(),
-			MNOP: mInfo.HasMNOP(),
-		},
-	}
-	return nil
-}
-
-func (s *Sess) RemoveURR(req *ie.IE) ([]report.USAReport, error) {
-	id, err := req.URRID()
-	if err != nil {
-		return nil, ErrMissingMandatoryIE
-	}
-
-	info, ok := s.URRIDs[id]
-	if !ok {
-		return nil, ErrRuleNotFound
-	}
-
-	usars, err := s.rnode.driver.RemoveURR(s.LocalID, req)
-	if err != nil {
-		return nil, ErrRuleCreationModificationFailed
-	}
-
-	info.removed = true // remove URRInfo later
-
-	// indicates usage report being reported for a URR due to the removal of the URR
-	for i := range usars {
-		usars[i].USARTrigger.Flags |= report.USAR_TRIG_TERMR
-	}
-	return usars, nil
-}
-
-func (s *Sess) CreateBAR(req *ie.IE) error {
-	id, err := req.BARID()
-	if err != nil {
-		return ErrMissingMandatoryIE
-	}
-
-	err = s.rnode.driver.CreateBAR(s.LocalID, req)
-	if err != nil {
-		return ErrRuleCreationModificationFailed
-	}
-
-	s.BARIDs[id] = struct{}{}
-	return nil
-}
-
-func (s *Sess) RemoveBAR(req *ie.IE) error {
-	id, err := req.BARID()
-	if err != nil {
-		return ErrMissingMandatoryIE
-	}
-
-	_, ok := s.BARIDs[id]
-	if !ok {
-		return ErrRuleNotFound
-	}
-
-	if err = s.rnode.driver.RemoveBAR(s.LocalID, req); err != nil {
-		return ErrRuleCreationModificationFailed
-	}
-
-	delete(s.BARIDs, id)
 	return nil
 }
 
@@ -416,10 +221,11 @@ func (s *Sess) URRSeq(urrid uint32) uint32 {
 // ValidateCreatePDR validates CreatePDR and builds plan without modifying state
 func (s *Sess) ValidateCreatePDR(req *ie.IE) (*forwarder.PDRPlan, error) {
 	plan, err := s.rnode.driver.BuildCreatePDRPlan(s.LocalID, req)
+	s.log.Errorf("Kash Debug1")
 	if err != nil {
 		return nil, ErrRuleCreationModificationFailed
 	}
-
+	s.log.Errorf("Kash Debug2")
 	// Validate URR references exist
 	for _, urrid := range plan.URRIDs {
 		if _, ok := s.URRIDs[urrid]; !ok {

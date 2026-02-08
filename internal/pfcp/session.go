@@ -53,60 +53,103 @@ func (s *PfcpServer) handleSessionEstablishmentRequest(
 	// allocate a session
 	sess := rnode.NewSess(fseid.SEID)
 
-	// TODO: rollback transaction
+	// ========================================================================
+	// PHASE 1: Validation - Build all plans and validate without execution
+	// ========================================================================
+	plan := forwarder.NewModificationPlan(sess.LocalID)
+
 	for _, i := range req.CreateFAR {
-		if err = sess.CreateFAR(i); err != nil {
-			sess.log.Errorf("Est CreateFAR error: %v", err)
+		p, err := sess.ValidateCreateFAR(i)
+		if err != nil {
+			sess.log.Errorf("Est ValidateCreateFAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessEstFailRsp(req, addr, cause)
 			rnode.DeleteSess(sess.LocalID)
 			return
 		}
+		plan.CreateFARs = append(plan.CreateFARs, p)
 	}
 
 	for _, i := range req.CreateQER {
-		if err = sess.CreateQER(i); err != nil {
-			sess.log.Errorf("Est CreateQER error: %v", err)
+		p, err := sess.ValidateCreateQER(i)
+		if err != nil {
+			sess.log.Errorf("Est ValidateCreateQER error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessEstFailRsp(req, addr, cause)
 			rnode.DeleteSess(sess.LocalID)
 			return
 		}
+		plan.CreateQERs = append(plan.CreateQERs, p)
 	}
 
 	for _, i := range req.CreateURR {
-		if err = sess.CreateURR(i); err != nil {
-			sess.log.Errorf("Est CreateURR error: %v", err)
+		p, err := sess.ValidateCreateURR(i)
+		if err != nil {
+			sess.log.Errorf("Est ValidateCreateURR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessEstFailRsp(req, addr, cause)
 			rnode.DeleteSess(sess.LocalID)
 			return
 		}
+		plan.CreateURRs = append(plan.CreateURRs, p)
 	}
 
 	if req.CreateBAR != nil {
-		if err = sess.CreateBAR(req.CreateBAR); err != nil {
-			sess.log.Errorf("Est CreateBAR error: %v", err)
+		p, err := sess.ValidateCreateBAR(req.CreateBAR)
+		if err != nil {
+			sess.log.Errorf("Est ValidateCreateBAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessEstFailRsp(req, addr, cause)
 			rnode.DeleteSess(sess.LocalID)
 			return
 		}
+		plan.CreateBARs = append(plan.CreateBARs, p)
+	}
+
+	for _, i := range req.CreatePDR {
+		p, err := sess.ValidateCreatePDR(i)
+		if err != nil {
+			sess.log.Errorf("Est ValidateCreatePDR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessEstFailRsp(req, addr, cause)
+			rnode.DeleteSess(sess.LocalID)
+			return
+		}
+		plan.CreatePDRs = append(plan.CreatePDRs, p)
+	}
+
+	// ========================================================================
+	// PHASE 2: Execution - Execute all Create operations (fail-fast)
+	// ========================================================================
+	if _, err := sess.rnode.driver.ExecuteEstablishmentPlan(plan); err != nil {
+		sess.log.Errorf("Est execution error: %v", err)
+		s.sendSessEstFailRsp(req, addr, ie.CauseRuleCreationModificationFailure)
+		rnode.DeleteSess(sess.LocalID)
+		return
+	}
+
+	// ========================================================================
+	// PHASE 3: Apply - Update session internal state
+	// ========================================================================
+	for _, p := range plan.CreateFARs {
+		sess.ApplyCreateFAR(p)
+	}
+	for _, p := range plan.CreateQERs {
+		sess.ApplyCreateQER(p)
+	}
+	for _, p := range plan.CreateURRs {
+		sess.ApplyCreateURR(p)
+	}
+	for _, p := range plan.CreateBARs {
+		sess.ApplyCreateBAR(p)
 	}
 
 	CreatedPDRList := make([]*ie.IE, 0)
+	for _, p := range plan.CreatePDRs {
+		sess.ApplyCreatePDR(p)
 
-	for _, i := range req.CreatePDR {
-		if err = sess.CreatePDR(i); err != nil {
-			sess.log.Errorf("Est CreatePDR error: %v", err)
-			cause := pfcpCauseFromError(err)
-			s.sendSessEstFailRsp(req, addr, cause)
-			rnode.DeleteSess(sess.LocalID)
-			return
-		}
-
-		ueIPAddress := getUEAddressFromPDR(i)
-		pdrId := getPDRIDFromPDR(i)
+		ueIPAddress := getUEAddressFromPDR(p.OriginalIE)
+		pdrId := getPDRIDFromPDR(p.OriginalIE)
 
 		if ueIPAddress != nil {
 			ueIPv4 := ueIPAddress.IPv4Address.String()

@@ -16,26 +16,8 @@ import (
 type Driver interface {
 	Close()
 
-	CreatePDR(uint64, *ie.IE) error
-	UpdatePDR(uint64, *ie.IE) error
-	RemovePDR(uint64, *ie.IE) error
-
-	CreateFAR(uint64, *ie.IE) error
-	UpdateFAR(uint64, *ie.IE) error
-	RemoveFAR(uint64, *ie.IE) error
-
-	CreateQER(uint64, *ie.IE) error
-	UpdateQER(uint64, *ie.IE) error
-	RemoveQER(uint64, *ie.IE) error
-
-	CreateURR(uint64, *ie.IE) error
-	UpdateURR(uint64, *ie.IE) ([]report.USAReport, error)
-	RemoveURR(uint64, *ie.IE) ([]report.USAReport, error)
+	// QueryURR is used internally by diassociateURR when a PDR is removed/updated
 	QueryURR(uint64, uint32) ([]report.USAReport, error)
-
-	CreateBAR(uint64, *ie.IE) error
-	UpdateBAR(uint64, *ie.IE) error
-	RemoveBAR(uint64, *ie.IE) error
 
 	HandleReport(report.Handler)
 
@@ -66,6 +48,10 @@ type Driver interface {
 	// If dryRun is true, only validates without executing gtp5gnl calls
 	// Uses best-effort execution: continues on failure, logs errors
 	ExecuteModificationPlan(plan *ModificationPlan, dryRun bool) (*ExecutionResult, error)
+
+	// ExecuteEstablishmentPlan executes Create operations for session establishment
+	// Uses fail-fast: returns error on first failure
+	ExecuteEstablishmentPlan(plan *ModificationPlan) (*ExecutionResult, error)
 }
 
 func NewDriver(wg *sync.WaitGroup, cfg *factory.Config) (Driver, error) {
