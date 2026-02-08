@@ -133,6 +133,56 @@ type ExecutionResult struct {
 	USAReports []report.USAReport
 }
 
+// HasCreateFAR checks if the plan contains a CreateFAR with the given FAR ID
+func (p *ModificationPlan) HasCreateFAR(farid uint32) bool {
+	for _, f := range p.CreateFARs {
+		if f.FARID == farid {
+			return true
+		}
+	}
+	return false
+}
+
+// HasCreateQER checks if the plan contains a CreateQER with the given QER ID
+func (p *ModificationPlan) HasCreateQER(qerid uint32) bool {
+	for _, q := range p.CreateQERs {
+		if q.QERID == qerid {
+			return true
+		}
+	}
+	return false
+}
+
+// HasCreateURR checks if the plan contains a CreateURR with the given URR ID
+func (p *ModificationPlan) HasCreateURR(urrid uint32) bool {
+	for _, u := range p.CreateURRs {
+		if u.URRID == urrid {
+			return true
+		}
+	}
+	return false
+}
+
+// HasCreateBAR checks if the plan contains a CreateBAR with the given BAR ID
+func (p *ModificationPlan) HasCreateBAR(barid uint8) bool {
+	for _, b := range p.CreateBARs {
+		if b.BARID == barid {
+			return true
+		}
+	}
+	return false
+}
+
+// HasCreatePDR checks if the plan contains a CreatePDR with the given PDR ID
+func (p *ModificationPlan) HasCreatePDR(pdrid uint16) bool {
+	for _, d := range p.CreatePDRs {
+		if d.PDRID == pdrid {
+			return true
+		}
+	}
+	return false
+}
+
 // NewExecutionResult creates a new empty ExecutionResult
 func NewExecutionResult() *ExecutionResult {
 	return &ExecutionResult{
