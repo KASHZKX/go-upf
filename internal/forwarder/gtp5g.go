@@ -1729,7 +1729,6 @@ func (g *Gtp5g) WritePacket(far *gtp5gnl.FAR, qer *gtp5gnl.QER, pkt []byte) erro
 // Plan-based methods for two-phase commit (validation + execution)
 // ============================================================================
 
-// BuildCreatePDRPlan parses and validates CreatePDR IE without executing
 func (g *Gtp5g) BuildCreatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 	var pdrid uint64
 	var attrs []nl.Attr
@@ -1777,6 +1776,7 @@ func (g *Gtp5g) BuildCreatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 				Type:  gtp5gnl.PDR_OUTER_HEADER_REMOVAL,
 				Value: nl.AttrU8(v),
 			})
+			// ignore GTPUExternsionHeaderDeletion
 		case ie.FARID:
 			v, err := i.FARID()
 			if err != nil {
@@ -1789,6 +1789,7 @@ func (g *Gtp5g) BuildCreatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 		case ie.QERID:
 			v, err := i.QERID()
 			if err != nil {
+				// QER is optional, log but continue
 				logger.FwderLog.Warnf("CreatePDR: Failed to parse QERID: %v", err)
 				break
 			}
@@ -1799,6 +1800,7 @@ func (g *Gtp5g) BuildCreatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 		case ie.URRID:
 			v, err := i.URRID()
 			if err != nil {
+				// URR is optional, log but continue
 				logger.FwderLog.Warnf("CreatePDR: Failed to parse URRID: %v", err)
 				break
 			}
@@ -1810,6 +1812,14 @@ func (g *Gtp5g) BuildCreatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 		}
 	}
 
+	// TODO:
+	// Not in 3GPP spec, just used for routing
+	// var roleAddrIpv4 net.IP
+	// roleAddrIpv4 = net.IPv4(34, 35, 36, 37)
+	// pdr.RoleAddrIpv4 = &roleAddrIpv4
+
+	// TODO:
+	// Not in 3GPP spec, just used for buffering
 	attrs = append(attrs, nl.Attr{
 		Type:  gtp5gnl.PDR_UNIX_SOCKET_PATH,
 		Value: nl.AttrString(gtp5gnl.PdrAddrForNetlink),
@@ -1825,7 +1835,6 @@ func (g *Gtp5g) BuildCreatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 	}, nil
 }
 
-// BuildUpdatePDRPlan parses and validates UpdatePDR IE without executing
 func (g *Gtp5g) BuildUpdatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 	var pdrid uint64
 	var attrs []nl.Attr
@@ -1847,6 +1856,7 @@ func (g *Gtp5g) BuildUpdatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 		case ie.Precedence:
 			v, err := i.Precedence()
 			if err != nil {
+				// Precedence is optional in Update, log but continue
 				logger.FwderLog.Warnf("UpdatePDR: Failed to parse Precedence: %v", err)
 				break
 			}
@@ -1875,6 +1885,7 @@ func (g *Gtp5g) BuildUpdatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 				Type:  gtp5gnl.PDR_OUTER_HEADER_REMOVAL,
 				Value: nl.AttrU8(v),
 			})
+			// ignore GTPUExternsionHeaderDeletion
 		case ie.FARID:
 			v, err := i.FARID()
 			if err != nil {
@@ -1919,7 +1930,6 @@ func (g *Gtp5g) BuildUpdatePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 	}, nil
 }
 
-// BuildRemovePDRPlan parses and validates RemovePDR IE without executing
 func (g *Gtp5g) BuildRemovePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 	v, err := req.PDRID()
 	if err != nil {
@@ -1935,7 +1945,6 @@ func (g *Gtp5g) BuildRemovePDRPlan(lSeid uint64, req *ie.IE) (*PDRPlan, error) {
 	}, nil
 }
 
-// BuildCreateFARPlan parses and validates CreateFAR IE without executing
 func (g *Gtp5g) BuildCreateFARPlan(lSeid uint64, req *ie.IE) (*FARPlan, error) {
 	var farid uint64
 	var attrs []nl.Attr
@@ -2003,7 +2012,6 @@ func (g *Gtp5g) BuildCreateFARPlan(lSeid uint64, req *ie.IE) (*FARPlan, error) {
 	}, nil
 }
 
-// BuildUpdateFARPlan parses and validates UpdateFAR IE without executing
 func (g *Gtp5g) BuildUpdateFARPlan(lSeid uint64, req *ie.IE) (*FARPlan, error) {
 	var farid uint64
 	var attrs []nl.Attr
@@ -2074,7 +2082,6 @@ func (g *Gtp5g) BuildUpdateFARPlan(lSeid uint64, req *ie.IE) (*FARPlan, error) {
 	}, nil
 }
 
-// BuildRemoveFARPlan parses and validates RemoveFAR IE without executing
 func (g *Gtp5g) BuildRemoveFARPlan(lSeid uint64, req *ie.IE) (*FARPlan, error) {
 	v, err := req.FARID()
 	if err != nil {
@@ -2090,7 +2097,6 @@ func (g *Gtp5g) BuildRemoveFARPlan(lSeid uint64, req *ie.IE) (*FARPlan, error) {
 	}, nil
 }
 
-// BuildCreateQERPlan parses and validates CreateQER IE without executing
 func (g *Gtp5g) BuildCreateQERPlan(lSeid uint64, req *ie.IE) (*QERPlan, error) {
 	var qerid uint64
 	var attrs []nl.Attr
@@ -2201,7 +2207,6 @@ func (g *Gtp5g) BuildCreateQERPlan(lSeid uint64, req *ie.IE) (*QERPlan, error) {
 	}, nil
 }
 
-// BuildUpdateQERPlan parses and validates UpdateQER IE without executing
 func (g *Gtp5g) BuildUpdateQERPlan(lSeid uint64, req *ie.IE) (*QERPlan, error) {
 	var qerid uint64
 	var attrs []nl.Attr
@@ -2312,7 +2317,6 @@ func (g *Gtp5g) BuildUpdateQERPlan(lSeid uint64, req *ie.IE) (*QERPlan, error) {
 	}, nil
 }
 
-// BuildRemoveQERPlan parses and validates RemoveQER IE without executing
 func (g *Gtp5g) BuildRemoveQERPlan(lSeid uint64, req *ie.IE) (*QERPlan, error) {
 	v, err := req.QERID()
 	if err != nil {
@@ -2328,7 +2332,6 @@ func (g *Gtp5g) BuildRemoveQERPlan(lSeid uint64, req *ie.IE) (*QERPlan, error) {
 	}, nil
 }
 
-// BuildCreateURRPlan parses and validates CreateURR IE without executing
 func (g *Gtp5g) BuildCreateURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error) {
 	var urrid uint32
 	var measureMethod uint8
@@ -2380,6 +2383,7 @@ func (g *Gtp5g) BuildCreateURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error) {
 			if measurePeriod <= 0 {
 				return nil, errors.New("invalid measurement period")
 			}
+			// TODO: convert time.Duration -> ?
 			attrs = append(attrs, nl.Attr{
 				Type:  gtp5gnl.URR_MEASUREMENT_PERIOD,
 				Value: nl.AttrU32(measurePeriod),
@@ -2514,6 +2518,8 @@ func (g *Gtp5g) BuildUpdateURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error) {
 				Value: v,
 			})
 		}
+
+		// TODO: should apply PERIO updateURR and receive final report from old URR
 	}
 
 	return &URRPlan{
@@ -2527,7 +2533,6 @@ func (g *Gtp5g) BuildUpdateURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error) {
 	}, nil
 }
 
-// BuildRemoveURRPlan parses and validates RemoveURR IE without executing
 func (g *Gtp5g) BuildRemoveURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error) {
 	v, err := req.URRID()
 	if err != nil {
@@ -2543,7 +2548,6 @@ func (g *Gtp5g) BuildRemoveURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error) {
 	}, nil
 }
 
-// BuildQueryURRPlan parses and validates QueryURR IE without executing
 func (g *Gtp5g) BuildQueryURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error) {
 	v, err := req.URRID()
 	if err != nil {
@@ -2559,7 +2563,6 @@ func (g *Gtp5g) BuildQueryURRPlan(lSeid uint64, req *ie.IE) (*URRPlan, error) {
 	}, nil
 }
 
-// BuildCreateBARPlan parses and validates CreateBAR IE without executing
 func (g *Gtp5g) BuildCreateBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error) {
 	var barid uint64
 	var attrs []nl.Attr
@@ -2582,6 +2585,7 @@ func (g *Gtp5g) BuildCreateBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error) {
 			if err != nil {
 				return nil, err
 			}
+			// TODO: convert time.Duration -> ?
 			attrs = append(attrs, nl.Attr{
 				Type:  gtp5gnl.BAR_DOWNLINK_DATA_NOTIFICATION_DELAY,
 				Value: nl.AttrU8(v),
@@ -2607,7 +2611,6 @@ func (g *Gtp5g) BuildCreateBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error) {
 	}, nil
 }
 
-// BuildUpdateBARPlan parses and validates UpdateBAR IE without executing
 func (g *Gtp5g) BuildUpdateBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error) {
 	var barid uint64
 	var attrs []nl.Attr
@@ -2630,6 +2633,7 @@ func (g *Gtp5g) BuildUpdateBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error) {
 			if err != nil {
 				return nil, err
 			}
+			// TODO: convert time.Duration -> ?
 			attrs = append(attrs, nl.Attr{
 				Type:  gtp5gnl.BAR_DOWNLINK_DATA_NOTIFICATION_DELAY,
 				Value: nl.AttrU8(v),
@@ -2655,7 +2659,6 @@ func (g *Gtp5g) BuildUpdateBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error) {
 	}, nil
 }
 
-// BuildRemoveBARPlan parses and validates RemoveBAR IE without executing
 func (g *Gtp5g) BuildRemoveBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error) {
 	v, err := req.BARID()
 	if err != nil {

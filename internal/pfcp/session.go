@@ -54,7 +54,6 @@ func (s *PfcpServer) handleSessionEstablishmentRequest(
 	sess := rnode.NewSess(fseid.SEID)
 
 	// TODO: rollback transaction
-	// Solved by deleting sess if one of operation fails (all or nothing)
 	for _, i := range req.CreateFAR {
 		if err = sess.CreateFAR(i); err != nil {
 			sess.log.Errorf("Est CreateFAR error: %v", err)
@@ -195,11 +194,10 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	// ========================================================================
 	plan := forwarder.NewModificationPlan(sess.LocalID)
 
-	// Validate Create operations - order: FAR -> QER -> URR -> BAR -> PDR
 	for _, i := range req.CreateFAR {
 		p, err := sess.ValidateCreateFAR(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateCreateFAR error: %v", err)
+			sess.log.Warnf("Mod ValidateCreateFAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -210,7 +208,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	for _, i := range req.CreateQER {
 		p, err := sess.ValidateCreateQER(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateCreateQER error: %v", err)
+			sess.log.Warnf("Mod ValidateCreateQER error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -221,7 +219,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	for _, i := range req.CreateURR {
 		p, err := sess.ValidateCreateURR(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateCreateURR error: %v", err)
+			sess.log.Warnf("Mod ValidateCreateURR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -232,7 +230,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	if req.CreateBAR != nil {
 		p, err := sess.ValidateCreateBAR(req.CreateBAR)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateCreateBAR error: %v", err)
+			sess.log.Warnf("Mod ValidateCreateBAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -243,7 +241,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	for _, i := range req.CreatePDR {
 		p, err := sess.ValidateCreatePDR(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateCreatePDR error: %v", err)
+			sess.log.Warnf("Mod ValidateCreatePDR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -251,55 +249,10 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		plan.CreatePDRs = append(plan.CreatePDRs, p)
 	}
 
-	// Validate Remove operations - order: PDR -> BAR -> URR -> QER -> FAR
-	for _, i := range req.RemovePDR {
-		p, err := sess.ValidateRemovePDR(i)
-		if err != nil {
-			sess.log.Errorf("Mod ValidateRemovePDR error: %v", err)
-			cause := pfcpCauseFromError(err)
-			s.sendSessModFailRsp(req, sess, addr, cause)
-			return
-		}
-		plan.RemovePDRs = append(plan.RemovePDRs, p)
-	}
-
-	if req.RemoveBAR != nil {
-		p, err := sess.ValidateRemoveBAR(req.RemoveBAR)
-		if err != nil {
-			sess.log.Errorf("Mod ValidateRemoveBAR error: %v", err)
-			cause := pfcpCauseFromError(err)
-			s.sendSessModFailRsp(req, sess, addr, cause)
-			return
-		}
-		plan.RemoveBARs = append(plan.RemoveBARs, p)
-	}
-
-	for _, i := range req.RemoveURR {
-		p, err := sess.ValidateRemoveURR(i)
-		if err != nil {
-			sess.log.Errorf("Mod ValidateRemoveURR error: %v", err)
-			cause := pfcpCauseFromError(err)
-			s.sendSessModFailRsp(req, sess, addr, cause)
-			return
-		}
-		plan.RemoveURRs = append(plan.RemoveURRs, p)
-	}
-
-	for _, i := range req.RemoveQER {
-		p, err := sess.ValidateRemoveQER(i)
-		if err != nil {
-			sess.log.Errorf("Mod ValidateRemoveQER error: %v", err)
-			cause := pfcpCauseFromError(err)
-			s.sendSessModFailRsp(req, sess, addr, cause)
-			return
-		}
-		plan.RemoveQERs = append(plan.RemoveQERs, p)
-	}
-
 	for _, i := range req.RemoveFAR {
 		p, err := sess.ValidateRemoveFAR(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateRemoveFAR error: %v", err)
+			sess.log.Warnf("Mod ValidateRemoveFAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -307,11 +260,54 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		plan.RemoveFARs = append(plan.RemoveFARs, p)
 	}
 
-	// Validate Update operations - order: FAR -> QER -> URR -> BAR -> PDR
+	for _, i := range req.RemoveQER {
+		p, err := sess.ValidateRemoveQER(i)
+		if err != nil {
+			sess.log.Warnf("Mod ValidateRemoveQER error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
+		}
+		plan.RemoveQERs = append(plan.RemoveQERs, p)
+	}
+
+	for _, i := range req.RemoveURR {
+		p, err := sess.ValidateRemoveURR(i)
+		if err != nil {
+			sess.log.Warnf("Mod ValidateRemoveURR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
+		}
+		plan.RemoveURRs = append(plan.RemoveURRs, p)
+	}
+
+	if req.RemoveBAR != nil {
+		p, err := sess.ValidateRemoveBAR(req.RemoveBAR)
+		if err != nil {
+			sess.log.Warnf("Mod ValidateRemoveBAR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
+		}
+		plan.RemoveBARs = append(plan.RemoveBARs, p)
+	}
+
+	for _, i := range req.RemovePDR {
+		p, err := sess.ValidateRemovePDR(i)
+		if err != nil {
+			sess.log.Warnf("Mod ValidateRemovePDR error: %v", err)
+			cause := pfcpCauseFromError(err)
+			s.sendSessModFailRsp(req, sess, addr, cause)
+			return
+		}
+		plan.RemovePDRs = append(plan.RemovePDRs, p)
+	}
+
 	for _, i := range req.UpdateFAR {
 		p, err := sess.ValidateUpdateFAR(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateUpdateFAR error: %v", err)
+			sess.log.Warnf("Mod ValidateUpdateFAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -322,7 +318,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	for _, i := range req.UpdateQER {
 		p, err := sess.ValidateUpdateQER(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateUpdateQER error: %v", err)
+			sess.log.Warnf("Mod ValidateUpdateQER error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -333,7 +329,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	for _, i := range req.UpdateURR {
 		p, err := sess.ValidateUpdateURR(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateUpdateURR error: %v", err)
+			sess.log.Warnf("Mod ValidateUpdateURR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -344,7 +340,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	if req.UpdateBAR != nil {
 		p, err := sess.ValidateUpdateBAR(req.UpdateBAR)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateUpdateBAR error: %v", err)
+			sess.log.Warnf("Mod ValidateUpdateBAR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -355,7 +351,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	for _, i := range req.UpdatePDR {
 		p, err := sess.ValidateUpdatePDR(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateUpdatePDR error: %v", err)
+			sess.log.Warnf("Mod ValidateUpdatePDR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -363,11 +359,10 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		plan.UpdatePDRs = append(plan.UpdatePDRs, p)
 	}
 
-	// Validate Query operations
 	for _, i := range req.QueryURR {
 		p, err := sess.ValidateQueryURR(i)
 		if err != nil {
-			sess.log.Errorf("Mod ValidateQueryURR error: %v", err)
+			sess.log.Warnf("Mod ValidateQueryURR error: %v", err)
 			cause := pfcpCauseFromError(err)
 			s.sendSessModFailRsp(req, sess, addr, cause)
 			return
@@ -457,17 +452,16 @@ func (s *PfcpServer) handleSessionModificationRequest(
 
 	// Collect USAReports from execution result (RemoveURR, UpdateURR, QueryURR)
 	if execResult != nil && len(execResult.USAReports) > 0 {
-		// Add trigger flags to execution result USAReports
 		for i := range execResult.USAReports {
 			r := &execResult.USAReports[i]
-			// Check if this is from RemoveURR
+
 			for _, p := range plan.RemoveURRs {
 				if p.URRID == r.URRID {
 					r.USARTrigger.Flags |= report.USAR_TRIG_TERMR
 					break
 				}
 			}
-			// Check if this is from QueryURR
+
 			for _, p := range plan.QueryURRs {
 				if p.QueryURRID == r.URRID {
 					r.USARTrigger.Flags |= report.USAR_TRIG_IMMER
@@ -478,7 +472,6 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		usars = append(usars, execResult.USAReports...)
 	}
 
-	// Build response
 	rsp := message.NewSessionModificationResponse(
 		0,             // mp
 		0,             // fo
