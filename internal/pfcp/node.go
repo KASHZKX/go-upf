@@ -102,7 +102,10 @@ func (s *Sess) Close() []report.USAReport {
 	}
 
 	// Execute all Remove operations (best-effort)
-	execResult, _ := s.rnode.driver.ExecuteModificationPlan(plan, false)
+	execResult, err := s.rnode.driver.ExecuteModificationPlan(plan, false)
+	if err != nil {
+		s.log.Errorf("Execute Deletion Plan err: %v", err)
+	}
 
 	// Apply state changes and collect USAReports
 	var usars []report.USAReport
