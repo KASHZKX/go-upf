@@ -695,7 +695,7 @@ func (s *PfcpServer) sendSessEstFailRsp(
 	rsp := message.NewSessionEstablishmentResponse(
 		0, // mp
 		0, // fo
-		0, // seid (session 尚未建立)
+		0, // seid (session not created)
 		req.Header.SequenceNumber,
 		0, // pri
 		ie.NewCause(cause),
