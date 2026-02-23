@@ -102,7 +102,7 @@ func (s *Sess) Close() []report.USAReport {
 	}
 
 	// Execute all Remove operations (best-effort)
-	execResult, err := s.rnode.driver.ExecuteModificationPlan(plan, false)
+	execResult, err := s.rnode.driver.ExecuteModificationPlan(plan)
 	if err != nil {
 		s.log.Errorf("Execute Deletion Plan err: %v", err)
 	}
@@ -514,11 +514,6 @@ func (s *Sess) ApplyCreateFAR(plan *forwarder.FARPlan) {
 	s.FARIDs[plan.FARID] = struct{}{}
 }
 
-// ApplyUpdateFAR updates session state after UpdateFAR execution (no state change)
-func (s *Sess) ApplyUpdateFAR(plan *forwarder.FARPlan) {
-	// No internal state to update for FAR update
-}
-
 // ApplyRemoveFAR updates session state after RemoveFAR execution
 func (s *Sess) ApplyRemoveFAR(plan *forwarder.FARPlan) {
 	delete(s.FARIDs, plan.FARID)
@@ -527,11 +522,6 @@ func (s *Sess) ApplyRemoveFAR(plan *forwarder.FARPlan) {
 // ApplyCreateQER updates session state after CreateQER execution
 func (s *Sess) ApplyCreateQER(plan *forwarder.QERPlan) {
 	s.QERIDs[plan.QERID] = struct{}{}
-}
-
-// ApplyUpdateQER updates session state after UpdateQER execution (no state change)
-func (s *Sess) ApplyUpdateQER(plan *forwarder.QERPlan) {
-	// No internal state to update for QER update
 }
 
 // ApplyRemoveQER updates session state after RemoveQER execution
@@ -593,19 +583,9 @@ func (s *Sess) ApplyRemoveURR(plan *forwarder.URRPlan) {
 	}
 }
 
-// ApplyQueryURR - no state change for query
-func (s *Sess) ApplyQueryURR(plan *forwarder.URRPlan) {
-	// No internal state to update for URR query
-}
-
 // ApplyCreateBAR updates session state after CreateBAR execution
 func (s *Sess) ApplyCreateBAR(plan *forwarder.BARPlan) {
 	s.BARIDs[plan.BARID] = struct{}{}
-}
-
-// ApplyUpdateBAR updates session state after UpdateBAR execution (no state change)
-func (s *Sess) ApplyUpdateBAR(plan *forwarder.BARPlan) {
-	// No internal state to update for BAR update
 }
 
 // ApplyRemoveBAR updates session state after RemoveBAR execution

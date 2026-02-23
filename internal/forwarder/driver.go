@@ -45,9 +45,8 @@ type Driver interface {
 	BuildRemoveBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error)
 
 	// ExecuteModificationPlan executes all operations in the plan
-	// If dryRun is true, only validates without executing gtp5gnl calls
 	// Uses best-effort execution: continues on failure, logs errors
-	ExecuteModificationPlan(plan *ModificationPlan, dryRun bool) (*ExecutionResult, error)
+	ExecuteModificationPlan(plan *ModificationPlan) (*ExecutionResult, error)
 
 	// ExecuteEstablishmentPlan executes Create operations for session establishment
 	// Uses fail-fast: returns error on first failure

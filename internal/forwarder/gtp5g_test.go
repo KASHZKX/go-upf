@@ -257,7 +257,7 @@ func TestGtp5g_CreateRules(t *testing.T) {
 		}
 		plan.UpdatePDRs = append(plan.UpdatePDRs, pp)
 
-		result, err := g.ExecuteModificationPlan(plan, false)
+		result, err := g.ExecuteModificationPlan(plan)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -289,7 +289,7 @@ func TestGtp5g_CreateRules(t *testing.T) {
 		}
 		plan.RemoveURRs = append(plan.RemoveURRs, up2)
 
-		result, err := g.ExecuteModificationPlan(plan, false)
+		result, err := g.ExecuteModificationPlan(plan)
 		if err != nil {
 			t.Fatal(err)
 		}

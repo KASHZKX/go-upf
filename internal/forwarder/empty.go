@@ -84,7 +84,7 @@ func (Empty) BuildRemoveBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error) {
 	return &BARPlan{}, nil
 }
 
-func (Empty) ExecuteModificationPlan(plan *ModificationPlan, dryRun bool) (*ExecutionResult, error) {
+func (Empty) ExecuteModificationPlan(plan *ModificationPlan) (*ExecutionResult, error) {
 	return NewExecutionResult(), nil
 }
 

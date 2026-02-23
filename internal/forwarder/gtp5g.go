@@ -1720,17 +1720,10 @@ func (g *Gtp5g) BuildRemoveBARPlan(lSeid uint64, req *ie.IE) (*BARPlan, error) {
 }
 
 // ExecuteModificationPlan executes all operations in the plan
-// If dryRun is true, only validates without executing gtp5gnl calls
 // Uses best-effort execution: continues on failure, logs errors
-func (g *Gtp5g) ExecuteModificationPlan(plan *ModificationPlan, dryRun bool) (*ExecutionResult, error) {
+func (g *Gtp5g) ExecuteModificationPlan(plan *ModificationPlan) (*ExecutionResult, error) {
 	result := NewExecutionResult()
 
-	if dryRun {
-		// In dry-run mode, we don't execute anything
-		return result, nil
-	}
-
-	// Execute Create operations in order: FAR -> QER -> URR -> BAR -> PDR
 	for _, p := range plan.CreateFARs {
 		if err := gtp5gnl.CreateFAROID(g.client, g.link.link, p.OID, p.Attrs); err != nil {
 			g.log.Errorf("ExecuteModificationPlan: CreateFAR[%#x] failed: %v", p.FARID, err)
@@ -1764,7 +1757,6 @@ func (g *Gtp5g) ExecuteModificationPlan(plan *ModificationPlan, dryRun bool) (*E
 		}
 	}
 
-	// Execute Remove operations in order: PDR -> BAR -> URR -> QER -> FAR
 	for _, p := range plan.RemovePDRs {
 		if err := gtp5gnl.RemovePDROID(g.client, g.link.link, p.OID); err != nil {
 			g.log.Errorf("ExecuteModificationPlan: RemovePDR[%#x] failed: %v", p.PDRID, err)
@@ -1800,12 +1792,11 @@ func (g *Gtp5g) ExecuteModificationPlan(plan *ModificationPlan, dryRun bool) (*E
 		}
 	}
 
-	// Execute Update operations in order: FAR -> QER -> URR -> BAR -> PDR
 	for _, p := range plan.UpdateFARs {
 		if err := gtp5gnl.UpdateFAROID(g.client, g.link.link, p.OID, p.Attrs); err != nil {
 			g.log.Errorf("ExecuteModificationPlan: UpdateFAR[%#x] failed: %v", p.FARID, err)
 		}
-		// Handle applyAction side effects
+
 		if p.ApplyAction != nil {
 			g.applyAction(plan.SEID, int(p.FARID), *p.ApplyAction)
 		}
@@ -1859,7 +1850,6 @@ func (g *Gtp5g) ExecuteModificationPlan(plan *ModificationPlan, dryRun bool) (*E
 func (g *Gtp5g) ExecuteEstablishmentPlan(plan *ModificationPlan) (*ExecutionResult, error) {
 	result := NewExecutionResult()
 
-	// Execute Create operations in order: FAR -> QER -> URR -> BAR -> PDR
 	for _, p := range plan.CreateFARs {
 		if err := gtp5gnl.CreateFAROID(g.client, g.link.link, p.OID, p.Attrs); err != nil {
 			return nil, errors.Wrapf(err, "EstablishmentPlan: CreateFAR[%#x] failed", p.FARID)

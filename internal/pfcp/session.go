@@ -423,7 +423,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	// ========================================================================
 	// PHASE 2: Execution - Execute all operations via gtp5gnl (best-effort)
 	// ========================================================================
-	execResult, err1 := sess.rnode.driver.ExecuteModificationPlan(plan, false)
+	execResult, err1 := sess.rnode.driver.ExecuteModificationPlan(plan)
 	if err1 != nil {
 		s.log.Errorf("Execute Modification Plan err: %v", err1)
 	}
@@ -451,18 +451,12 @@ func (s *PfcpServer) handleSessionModificationRequest(
 	}
 
 	// Apply Update operations (collect USAReports from PDR URR disassociation)
-	for _, p := range plan.UpdateFARs {
-		sess.ApplyUpdateFAR(p)
-	}
-	for _, p := range plan.UpdateQERs {
-		sess.ApplyUpdateQER(p)
-	}
+	// UpdateFAR has no state change
+	// UpdateQER has no state change
 	for _, p := range plan.UpdateURRs {
 		sess.ApplyUpdateURR(p)
 	}
-	for _, p := range plan.UpdateBARs {
-		sess.ApplyUpdateBAR(p)
-	}
+	// UpdateBAR has no state change
 	for _, p := range plan.UpdatePDRs {
 		rs := sess.ApplyUpdatePDR(p)
 		if len(rs) > 0 {
@@ -470,10 +464,7 @@ func (s *PfcpServer) handleSessionModificationRequest(
 		}
 	}
 
-	// Apply Query operations
-	for _, p := range plan.QueryURRs {
-		sess.ApplyQueryURR(p)
-	}
+	// Apply Query operations - QueryURR has no state change
 
 	// Apply Remove operations (collect USAReports from PDR disassociation)
 	for _, p := range plan.RemovePDRs {
