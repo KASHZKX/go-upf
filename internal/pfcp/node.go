@@ -225,12 +225,14 @@ func (s *Sess) URRSeq(urrid uint32) uint32 {
 func (s *Sess) ValidateCreatePDR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.PDRPlan, error) {
 	plan, err := s.rnode.driver.BuildCreatePDRPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateCreatePDR: BuildCreatePDRPlan failed: %v", err)
 		return nil, ErrRuleCreationModificationFailed
 	}
 
 	// Validate URR references exist (in session state or in-flight creates)
 	for _, urrid := range plan.URRIDs {
 		if _, ok := s.URRIDs[urrid]; !ok && !modPlan.HasCreateURR(urrid) {
+			s.log.Errorf("ValidateCreatePDR: URR ID %d not found", urrid)
 			return nil, ErrRuleCreationModificationFailed
 		}
 	}
@@ -242,11 +244,13 @@ func (s *Sess) ValidateCreatePDR(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateUpdatePDR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.PDRPlan, error) {
 	plan, err := s.rnode.driver.BuildUpdatePDRPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateUpdatePDR: BuildUpdatePDRPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate PDR exists (in session state or in-flight creates)
 	if _, ok := s.PDRIDs[plan.PDRID]; !ok && !modPlan.HasCreatePDR(plan.PDRID) {
+		s.log.Errorf("ValidateUpdatePDR: PDR ID %d not found", plan.PDRID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -257,11 +261,13 @@ func (s *Sess) ValidateUpdatePDR(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateRemovePDR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.PDRPlan, error) {
 	plan, err := s.rnode.driver.BuildRemovePDRPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateRemovePDR: BuildRemovePDRPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate PDR exists (in session state or in-flight creates)
 	if _, ok := s.PDRIDs[plan.PDRID]; !ok && !modPlan.HasCreatePDR(plan.PDRID) {
+		s.log.Errorf("ValidateRemovePDR: PDR ID %d not found", plan.PDRID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -272,6 +278,7 @@ func (s *Sess) ValidateRemovePDR(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateCreateFAR(req *ie.IE) (*forwarder.FARPlan, error) {
 	plan, err := s.rnode.driver.BuildCreateFARPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateCreateFAR: BuildCreateFARPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
@@ -282,11 +289,13 @@ func (s *Sess) ValidateCreateFAR(req *ie.IE) (*forwarder.FARPlan, error) {
 func (s *Sess) ValidateUpdateFAR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.FARPlan, error) {
 	plan, err := s.rnode.driver.BuildUpdateFARPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateUpdateFAR: BuildUpdateFARPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate FAR exists (in session state or in-flight creates)
 	if _, ok := s.FARIDs[plan.FARID]; !ok && !modPlan.HasCreateFAR(plan.FARID) {
+		s.log.Errorf("ValidateUpdateFAR: FAR ID %d not found", plan.FARID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -297,11 +306,13 @@ func (s *Sess) ValidateUpdateFAR(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateRemoveFAR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.FARPlan, error) {
 	plan, err := s.rnode.driver.BuildRemoveFARPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateRemoveFAR: BuildRemoveFARPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate FAR exists (in session state or in-flight creates)
 	if _, ok := s.FARIDs[plan.FARID]; !ok && !modPlan.HasCreateFAR(plan.FARID) {
+		s.log.Errorf("ValidateRemoveFAR: FAR ID %d not found", plan.FARID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -312,6 +323,7 @@ func (s *Sess) ValidateRemoveFAR(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateCreateQER(req *ie.IE) (*forwarder.QERPlan, error) {
 	plan, err := s.rnode.driver.BuildCreateQERPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateCreateQER: BuildCreateQERPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
@@ -322,11 +334,13 @@ func (s *Sess) ValidateCreateQER(req *ie.IE) (*forwarder.QERPlan, error) {
 func (s *Sess) ValidateUpdateQER(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.QERPlan, error) {
 	plan, err := s.rnode.driver.BuildUpdateQERPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateUpdateQER: BuildUpdateQERPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate QER exists (in session state or in-flight creates)
 	if _, ok := s.QERIDs[plan.QERID]; !ok && !modPlan.HasCreateQER(plan.QERID) {
+		s.log.Errorf("ValidateUpdateQER: QER ID %d not found", plan.QERID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -337,11 +351,13 @@ func (s *Sess) ValidateUpdateQER(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateRemoveQER(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.QERPlan, error) {
 	plan, err := s.rnode.driver.BuildRemoveQERPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateRemoveQER: BuildRemoveQERPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate QER exists (in session state or in-flight creates)
 	if _, ok := s.QERIDs[plan.QERID]; !ok && !modPlan.HasCreateQER(plan.QERID) {
+		s.log.Errorf("ValidateRemoveQER: QER ID %d not found", plan.QERID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -352,6 +368,7 @@ func (s *Sess) ValidateRemoveQER(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateCreateURR(req *ie.IE) (*forwarder.URRPlan, error) {
 	plan, err := s.rnode.driver.BuildCreateURRPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateCreateURR: BuildCreateURRPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
@@ -362,11 +379,13 @@ func (s *Sess) ValidateCreateURR(req *ie.IE) (*forwarder.URRPlan, error) {
 func (s *Sess) ValidateUpdateURR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.URRPlan, error) {
 	plan, err := s.rnode.driver.BuildUpdateURRPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateUpdateURR: BuildUpdateURRPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate URR exists (in session state or in-flight creates)
 	if _, ok := s.URRIDs[plan.URRID]; !ok && !modPlan.HasCreateURR(plan.URRID) {
+		s.log.Errorf("ValidateUpdateURR: URR ID %d not found", plan.URRID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -377,11 +396,13 @@ func (s *Sess) ValidateUpdateURR(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateRemoveURR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.URRPlan, error) {
 	plan, err := s.rnode.driver.BuildRemoveURRPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateRemoveURR: BuildRemoveURRPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate URR exists (in session state or in-flight creates)
 	if _, ok := s.URRIDs[plan.URRID]; !ok && !modPlan.HasCreateURR(plan.URRID) {
+		s.log.Errorf("ValidateRemoveURR: URR ID %d not found", plan.URRID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -392,11 +413,13 @@ func (s *Sess) ValidateRemoveURR(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateQueryURR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.URRPlan, error) {
 	plan, err := s.rnode.driver.BuildQueryURRPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateQueryURR: BuildQueryURRPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate URR exists (in session state or in-flight creates)
 	if _, ok := s.URRIDs[plan.QueryURRID]; !ok && !modPlan.HasCreateURR(plan.QueryURRID) {
+		s.log.Errorf("ValidateQueryURR: URR ID %d not found", plan.QueryURRID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -407,6 +430,7 @@ func (s *Sess) ValidateQueryURR(req *ie.IE, modPlan *forwarder.ModificationPlan)
 func (s *Sess) ValidateCreateBAR(req *ie.IE) (*forwarder.BARPlan, error) {
 	plan, err := s.rnode.driver.BuildCreateBARPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateCreateBAR: BuildCreateBARPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
@@ -417,11 +441,13 @@ func (s *Sess) ValidateCreateBAR(req *ie.IE) (*forwarder.BARPlan, error) {
 func (s *Sess) ValidateUpdateBAR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.BARPlan, error) {
 	plan, err := s.rnode.driver.BuildUpdateBARPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateUpdateBAR: BuildUpdateBARPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate BAR exists (in session state or in-flight creates)
 	if _, ok := s.BARIDs[plan.BARID]; !ok && !modPlan.HasCreateBAR(plan.BARID) {
+		s.log.Errorf("ValidateUpdateBAR: BAR ID %d not found", plan.BARID)
 		return nil, ErrRuleNotFound
 	}
 
@@ -432,11 +458,13 @@ func (s *Sess) ValidateUpdateBAR(req *ie.IE, modPlan *forwarder.ModificationPlan
 func (s *Sess) ValidateRemoveBAR(req *ie.IE, modPlan *forwarder.ModificationPlan) (*forwarder.BARPlan, error) {
 	plan, err := s.rnode.driver.BuildRemoveBARPlan(s.LocalID, req)
 	if err != nil {
+		s.log.Errorf("ValidateRemoveBAR: BuildRemoveBARPlan failed: %v", err)
 		return nil, ErrMissingMandatoryIE
 	}
 
 	// Validate BAR exists (in session state or in-flight creates)
 	if _, ok := s.BARIDs[plan.BARID]; !ok && !modPlan.HasCreateBAR(plan.BARID) {
+		s.log.Errorf("ValidateRemoveBAR: BAR ID %d not found", plan.BARID)
 		return nil, ErrRuleNotFound
 	}
 
