@@ -389,7 +389,6 @@ func (g *Gtp5g) newPdi(i *ie.IE) (nl.AttrList, error) {
 			// Validate SDF Filter IE payload length early (TS 29.244 Section 8.2.5)
 			// Minimum: 1 byte (flags) + 1 byte (spare) + at least 1 byte for content
 			if len(x.Payload) < 3 {
-				logger.FwderLog.Warnf("SDF Filter IE payload too short: %d bytes (minimum 3)", len(x.Payload))
 				return nil, errors.Errorf("SDF Filter IE payload too short: %d bytes (minimum 3)", len(x.Payload))
 			}
 			sdfIEs = append(sdfIEs, x)
@@ -400,8 +399,6 @@ func (g *Gtp5g) newPdi(i *ie.IE) (nl.AttrList, error) {
 	for _, x := range sdfIEs {
 		v, err := g.newSdfFilter(x, srcIf)
 		if err != nil {
-			// Log the error and return it instead of silently ignoring
-			logger.FwderLog.Warnf("Failed to parse SDF Filter: %v", err)
 			return nil, errors.Wrap(err, "newSdfFilter failed")
 		}
 		attrs = append(attrs, nl.Attr{
