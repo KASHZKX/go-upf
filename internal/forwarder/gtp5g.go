@@ -671,6 +671,28 @@ func (g *Gtp5g) HandleReport(handler report.Handler) {
 	g.ps.Handle(handler, g.psQueryURR)
 }
 
+func (g *Gtp5g) selectQERForPDRQFI(lSeid uint64, pdr *gtp5gnl.PDR) *gtp5gnl.QER {
+	var fallback *gtp5gnl.QER
+	for _, qerId := range pdr.QERID {
+		oid := gtp5gnl.OID{lSeid, uint64(qerId)}
+		q, err := gtp5gnl.GetQEROID(g.client, g.link.link, oid)
+		if err != nil {
+			g.log.Warnf("selectQERForPDRQFI GetQEROID err: %+v", err)
+			continue
+		}
+		if q.QFI == 0 {
+			continue
+		}
+		if fallback == nil {
+			fallback = q
+		}
+		if q.QFI != 1 {
+			return q
+		}
+	}
+	return fallback
+}
+
 func (g *Gtp5g) applyAction(lSeid uint64, farid int, action report.ApplyAction) {
 	oid := gtp5gnl.OID{lSeid, uint64(farid)}
 	far, err := gtp5gnl.GetFAROID(g.client, g.link.link, oid)
@@ -701,19 +723,7 @@ func (g *Gtp5g) applyAction(lSeid uint64, farid int, action report.ApplyAction) 
 				g.log.Warnf("applyAction GetPDROID err: %+v", err)
 				continue
 			}
-			var qer *gtp5gnl.QER
-			for _, qerId := range pdr.QERID {
-				oid := gtp5gnl.OID{lSeid, uint64(qerId)}
-				q, err := gtp5gnl.GetQEROID(g.client, g.link.link, oid)
-				if err != nil {
-					g.log.Warnf("applyAction GetQEROID err: %+v", err)
-					continue
-				}
-				if q.QFI != 0 {
-					qer = q
-					break
-				}
-			}
+			qer := g.selectQERForPDRQFI(lSeid, pdr)
 			for {
 				pkt, ok := g.bsnl.Pop(lSeid, pdrid)
 				if !ok {
